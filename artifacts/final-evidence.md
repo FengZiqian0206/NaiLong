@@ -32,4 +32,6 @@
 
 交付使用 GitHub Pages。GitHub Actions 在 main 更新时运行同一物理检查，并发布 index.html、game、vendor。Three.js 固定为0.180.0且已附MIT许可证，无外部运行时CDN依赖。
 
+发布结果：正式网址 https://fengziqian0206.github.io/NaiLong/ 。首次应用版本 e36456b；Actions 41819423230 的测试与部署成功。已打开正式网址并确认画面、三组 UI 和无控制台错误；published.jpg 是正式站点截图。Git 传输曾连续返回服务器500，之后通过官方 Git Data API 提交，已核对远端和本地文件树哈希一致。
+
 使用资源：threejs-game-director、gameplay-systems及physics-engine-selection/genre-design、game-ui-designer及ui-patterns、qa-release及release-checks、ponytail；阅读debug-profiler和graphics-builder以确认原型范围。Sites已被用户指定GitHub仓库/Pages方案取代，未创建额外站点。

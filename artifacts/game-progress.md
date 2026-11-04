@@ -16,4 +16,4 @@
 
 已完成：精简 UI 浏览器检查，真实 A 键行走到100%、R重来、D反向、空格起落、V视角切换，桌面与窄屏布局，控制台无报错。详细证据见 final-evidence.md。
 
-待办：GitHub Pages 发布。
+已完成：GitHub Pages 公开发布，Actions 测试/部署成功。正式站点 https://fengziqian0206.github.io/NaiLong/ 已在浏览器打开，确认精简 UI 和地形正常，控制台无报错。无剩余阻塞。
