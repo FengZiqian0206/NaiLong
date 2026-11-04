@@ -22,7 +22,7 @@ const keys = new Set();
 const debug = new URLSearchParams(location.search).has('debug');
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
 let last = performance.now(), accumulator = 0;
-let viewHeight = Math.max(56, 78 * window.innerHeight / window.innerWidth);
+let viewHeight = Math.max(28, 40 * window.innerHeight / window.innerWidth);
 
 function material(color, opacity = 1) {
   return new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, side: THREE.DoubleSide });
@@ -158,7 +158,7 @@ function frame(now) {
     }
   }
   const aspect = window.innerWidth / window.innerHeight;
-  const targetHeight = wideView ? Math.max(86, 120 / aspect) : Math.max(56, 78 / aspect);
+  const targetHeight = wideView ? Math.max(56, 78 / aspect) : Math.max(28, 40 / aspect);
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
   updateCameraPose(cameraPose, player, delta);
