@@ -1,6 +1,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, PHYSICS, samplePath, createPlayer, resetPlayer, stepPlayer } from './physics.js';
 import { createCameraPose, updateCameraPose } from './camera.js';
+import { setupFullscreen } from './fullscreen.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -118,6 +119,8 @@ function restart() {
   canvas.focus({ preventScroll: true });
 }
 window.addEventListener('keydown', (event) => {
+  if (event.code === 'Escape' || event.code === 'KeyF') return;
+  if (event.target.closest?.('button') && ['Space', 'Enter'].includes(event.code)) return;
   if (['Space', 'ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
   if (event.code === 'KeyR') return restart();
@@ -139,8 +142,13 @@ function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 window.addEventListener('resize', resize);
+document.addEventListener('fullscreenchange', () => {
+  resize();
+  canvas.focus({ preventScroll: true });
+});
 resize();
 $('loading').hidden = true;
+setupFullscreen($('game'), $('fullscreen'));
 
 function frame(now) {
   const delta = Math.min((now - last) / 1000, .05); last = now;
@@ -183,6 +191,7 @@ function frame(now) {
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
     nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: cameraPose.x, cameraY: cameraPose.y, viewHeight,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
+    fullscreen: Boolean(document.fullscreenElement),
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
