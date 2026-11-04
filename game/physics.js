@@ -1,5 +1,6 @@
 // The same sampled centreline drives the visible ribbon and its capsule collider.
 // Coordinates follow the supplied sketch; y points upwards in the game world.
+const worldScale=1.8;
 const anchors = [
   [1790,150],[1530,150],[1320,160],[1080,125],[850,93],[600,88],
   [405,110],[260,180],[160,330],[105,520],[110,650],[215,805],
@@ -10,7 +11,7 @@ const anchors = [
   [1180,520],[1080,425],[960,370],[855,370],[745,400],[680,450],
   [682,505],[730,590],[800,630],[890,640],[955,620],[990,580],
   [975,540],[935,510],[895,505],[871,520],[873,546],[888,555],
-].map(([x,y]) => ({x:(x-960)/18,y:(540-y)/18}));
+].map(([x,y]) => ({x:(x-960)/18*worldScale,y:(540-y)/18*worldScale}));
 
 const lerp = (a,b,t) => a + (b-a)*t;
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
@@ -22,13 +23,23 @@ function spline(a,b,c,d,t,key) {
 const points = [];
 for (let i=0;i<anchors.length-1;i++) {
   const a=anchors[Math.max(0,i-1)],b=anchors[i],c=anchors[i+1],d=anchors[Math.min(anchors.length-1,i+2)];
-  const steps=Math.max(8,Math.ceil(Math.hypot(c.x-b.x,c.y-b.y)/.32));
-  for (let j=0;j<steps;j++) points.push({x:spline(a,b,c,d,j/steps,'x'),y:spline(a,b,c,d,j/steps,'y')});
+  let steps=Math.max(8,Math.ceil(Math.hypot(c.x-b.x,c.y-b.y)/.32));
+  let section,maxSpacing;
+  do {
+    section=[];maxSpacing=0;
+    for(let j=0;j<=steps;j++) {
+      const point={x:spline(a,b,c,d,j/steps,'x'),y:spline(a,b,c,d,j/steps,'y')};
+      if(j) maxSpacing=Math.max(maxSpacing,Math.hypot(point.x-section[j-1].x,point.y-section[j-1].y));
+      section.push(point);
+    }
+    if(maxSpacing>.32) steps=Math.ceil(steps*maxSpacing/.32)+1;
+  } while(maxSpacing>.32);
+  points.push(...section.slice(0,-1));
 }
 points.push({...anchors.at(-1)});
 const lengths=[0];
 for(let i=1;i<points.length;i++) lengths.push(lengths[i-1]+Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y));
-export const WORLD={points,halfWidth:.85,radius:.62,totalLength:lengths.at(-1)};
+export const WORLD={points,scale:worldScale,halfWidth:.85*worldScale,radius:.62,totalLength:lengths.at(-1)};
 export const PHYSICS={speed:10,acceleration:48,airAcceleration:20,gravity:30,jumpSpeed:13.4,fixedDt:1/120};
 const contact=WORLD.halfWidth+WORLD.radius;
 
@@ -43,7 +54,7 @@ export function samplePath(fraction) {
 
 export function nearestSurface(x,y) {
   let bestDistance=Infinity,bestIndex=0,bestT=0,qx=0,qy=0;
-  // ponytail: linear scan is ample for one character / ~1500 static segments.
+  // ponytail: linear scan is ample for one character / ~3000 static segments.
   // Add a spatial grid only if additional dynamic actors make this measurable.
   for(let i=0;i<points.length-1;i++) {
     const a=points[i],b=points[i+1],dx=b.x-a.x,dy=b.y-a.y;

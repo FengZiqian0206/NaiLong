@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import {WORLD,PHYSICS,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js';
 const dt=PHYSICS.fixedDt,contact=WORLD.halfWidth+WORLD.radius;
+assert.equal(WORLD.scale,1.8,'the world has an explicit enlarged scale');
+assert.equal(WORLD.radius,.62,'enlarging the terrain does not enlarge the player');
+assert.equal(WORLD.halfWidth,.85*WORLD.scale,'terrain thickness follows world scale');
+for(const [actual,original] of [[samplePath(0),{x:830/18,y:390/18}],[samplePath(1),{x:-72/18,y:-15/18}]]) {
+  assert.ok(Math.abs(actual.x-original.x*WORLD.scale)<1e-10,'anchor x scales around the world origin');
+  assert.ok(Math.abs(actual.y-original.y*WORLD.scale)<1e-10,'anchor y scales around the world origin');
+}
+let maxSpacing=0;
+for(let i=1;i<WORLD.points.length;i++) maxSpacing=Math.max(maxSpacing,
+  Math.hypot(WORLD.points[i].x-WORLD.points[i-1].x,WORLD.points[i].y-WORLD.points[i-1].y));
+assert.ok(maxSpacing<=.32,'collision sampling stays dense after enlargement');
+assert.ok(Math.abs(WORLD.totalLength/WORLD.scale-417.4814)<.05,'path length scales with the terrain');
 function tick(p,move=0,jump=false) {
   stepPlayer(p,{move,jump},dt);
   assert.ok(Number.isFinite(p.x+p.y+p.vx+p.vy),'finite simulation');
@@ -63,7 +75,7 @@ for(let i=0;i<16000 && !p.won;i++) {
 assert.ok(p.won,'repeated moving jumps can traverse every coil');
 const movingJumps=p.jumps,movingJumpSeconds=p.elapsed;
 resetPlayer(p);
-for(let i=0;i<480;i++) {
+for(let i=0;i<Math.ceil(480*WORLD.scale);i++) {
   tick(p,1);
   assert.ok(p.grounded,'outer rounded tip remains walkable');
 }
@@ -89,6 +101,7 @@ tick(p);
 assert.ok(nearestSurface(p.x,p.y).distance<initialDistance,'free fall uses nearest ground');
 for(let i=0;i<120;i++) tick(p);
 assert.ok(p.grounded,'free fall settles on the middle coil');
-console.log(JSON.stringify({ok:true,segments:WORLD.points.length-1,pathLength:WORLD.totalLength,
+console.log(JSON.stringify({ok:true,scale:WORLD.scale,radius:WORLD.radius,halfWidth:WORLD.halfWidth,
+  segments:WORLD.points.length-1,maxSpacing,pathLength:WORLD.totalLength,
   walkSeconds:frames*dt,reverseSeconds:reverseFrames*dt,jumpHeight:highest,airFrames,minNormalY,
   movingJumps,movingJumpSeconds},null,2));

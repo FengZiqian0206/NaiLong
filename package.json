@@ -3,5 +3,5 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test game/physics.test.mjs", "start": "python -m http.server 5188 --bind 127.0.0.1" }
+  "scripts": { "test": "node --test game/*.test.mjs", "start": "python -m http.server 5188 --bind 127.0.0.1" }
 }
