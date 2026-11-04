@@ -1,5 +1,26 @@
 # NaiLong
 
+## 螺旋漫游 · 可玩原型
+
+[点击进入游戏](https://fengziqian0206.github.io/NaiLong/)
+
+Three.js 二维侧视平台移动原型。圆形角色从右上出发，沿连续螺旋前往中心；重力指向最近地面，可以在弯道、侧壁和底面行走。跳跃沿当前地面法线向外发射，空中会重新寻找最近的地面。
+
+| 按键 | 操作 |
+|---|---|
+| A / D（或左右方向键） | 沿当前地面的局部左右移动 |
+| 空格 | 跳跃（按住不会自动连跳） |
+| V | 全景 / 跟随视角 |
+| R | 回到起点 |
+
+首次移动自动进入跟随视角；切到其他窗口自动暂停，回来继续。到达中心显示 100%，按 R 重来。界面仅保留「向螺旋深处」、左下控制说明、WORLD MAP。本版以电脑键盘操作为目标。
+
+本地运行：在仓库目录执行 `python -m http.server 5188 --bind 127.0.0.1`，打开 `http://127.0.0.1:5188`，不要直接双击 HTML。无需安装 npm 包或构建；Three.js 0.180.0 已随仓库提供，许可证见 `vendor/THREE-LICENSE.txt`。
+
+验证：`node --test game/physics.test.mjs`。地形和物理参数位于 `game/physics.js`，渲染、输入、镜头位于 `game/main.js`。调试时 URL 加 `?debug` 可在 canvas 的 `data-diagnostics` 属性读取诊断数据。
+
+部署：GitHub Pages 使用 GitHub Actions，推送 main 后 `.github/workflows/pages.yml` 先运行物理测试，再发布静态文件。当前只实现螺旋移动机制，以下原有策划保留，尚未实现剧情、解谜与多个世界。
+
 ## 成员/分工
 
 欧阳文思：文案、剧情、归档、声音、作业提交

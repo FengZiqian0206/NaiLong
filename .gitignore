@@ -1,0 +1,7 @@
+node_modules/
+artifacts/*.png
+artifacts/*.jpg
+artifacts/*.webm
+artifacts/*.zip
+artifacts/browser-qa.json
+.DS_Store
