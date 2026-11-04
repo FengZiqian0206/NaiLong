@@ -1,6 +1,6 @@
 // The same sampled centreline drives the visible ribbon and its capsule collider.
 // Coordinates follow the supplied sketch; y points upwards in the game world.
-const worldScale=1.8;
+const worldScale=3;
 const anchors = [
   [1790,150],[1530,150],[1320,160],[1080,125],[850,93],[600,88],
   [405,110],[260,180],[160,330],[105,520],[110,650],[215,805],
@@ -54,7 +54,7 @@ export function samplePath(fraction) {
 
 export function nearestSurface(x,y) {
   let bestDistance=Infinity,bestIndex=0,bestT=0,qx=0,qy=0;
-  // ponytail: linear scan is ample for one character / ~3000 static segments.
+  // ponytail: linear scan is ample for one character / ~5000 static segments.
   // Add a spatial grid only if additional dynamic actors make this measurable.
   for(let i=0;i<points.length-1;i++) {
     const a=points[i],b=points[i+1],dx=b.x-a.x,dy=b.y-a.y;

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {WORLD,PHYSICS,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js';
 const dt=PHYSICS.fixedDt,contact=WORLD.halfWidth+WORLD.radius;
-assert.equal(WORLD.scale,1.8,'the world has an explicit enlarged scale');
+const routeFrameLimit=Math.ceil((WORLD.totalLength/PHYSICS.speed*1.5+5)/dt);
+assert.equal(WORLD.scale,3,'the world has an explicit enlarged scale');
 assert.equal(WORLD.radius,.62,'enlarging the terrain does not enlarge the player');
 assert.equal(WORLD.halfWidth,.85*WORLD.scale,'terrain thickness follows world scale');
 for(const [actual,original] of [[samplePath(0),{x:830/18,y:390/18}],[samplePath(1),{x:-72/18,y:-15/18}]]) {
@@ -49,7 +50,7 @@ tick(p,0,true);
 assert.ok(p.y<underY && !p.grounded,'underside jump points away from ground');
 resetPlayer(p);
 let minNormalY=1,maxProgress=0,frames=0;
-for(;frames<18000 && !p.won;frames++) {
+for(;frames<routeFrameLimit && !p.won;frames++) {
   tick(p,-1);
   assert.ok(p.grounded,'walking maintains contact around every bend');
   minNormalY=Math.min(minNormalY,p.ny);
@@ -59,14 +60,14 @@ assert.ok(minNormalY<-.9,'full journey includes upside-down traversal');
 assert.ok(p.won,'A alone traverses the complete spiral and reaches the centre');
 assert.ok(maxProgress>.995);
 let reverseFrames=0;
-while(p.progress>.007 && reverseFrames<18000) {
+while(p.progress>.007 && reverseFrames<routeFrameLimit) {
   tick(p,1);
   assert.ok(p.grounded,'reverse traversal maintains contact');
   reverseFrames++;
 }
 assert.ok(p.progress<.007,'reverse traversal reaches the outer start');
 resetPlayer(p);
-for(let i=0;i<16000 && !p.won;i++) {
+for(let i=0;i<routeFrameLimit && !p.won;i++) {
   const ground=nearestSurface(p.x,p.y);
   // Follow the route after a jump transfers gravity to another coil's underside.
   const move=(-ground.ny*ground.tx+ground.nx*ground.ty)>=0?-1:1;
@@ -95,7 +96,7 @@ for(const fraction of [.1,.45,.7,.9,.98]) {
 // A second neighbouring coil can become the nearest ground during free flight.
 // Place above the middle coil and check that gravity pulls into its local surface.
 const middle=samplePath(.65);
-Object.assign(p,{x:middle.x+middle.nx*3,y:middle.y+middle.ny*3,vx:0,vy:0,grounded:false,won:false});
+Object.assign(p,{x:middle.x+middle.nx*(contact+1.5),y:middle.y+middle.ny*(contact+1.5),vx:0,vy:0,grounded:false,won:false});
 const initialDistance=nearestSurface(p.x,p.y).distance;
 tick(p);
 assert.ok(nearestSurface(p.x,p.y).distance<initialDistance,'free fall uses nearest ground');

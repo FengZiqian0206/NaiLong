@@ -1,19 +1,17 @@
-# 场景比例与旋转镜头验证
+# Further world enlargement, local map and English UI
 
-日期：2026-11-04。范围：世界相对角色放大，以及始终跟随局部地面朝向的镜头。
+Date: 2026-11-04. Scope: enlarge the world and view, focus the map on the player, and translate all game UI into English.
 
-实现：WORLD.scale=1.8，地形半厚度1.53，角色半径0.62，路径751.48单位。移动速度10、跳跃初速13.4、重力30与初版相同。世界地图按统一比例归一化，保持原有布局和固定世界方向。
+World: scale3 compared with the initial prototype (up from1.8); half-width2.55; unchanged player radius0.62 and movement/jump constants. Track1252.48 units,4338 segments, maximum sampling gap0.31737.
 
-镜头：正交侧视，初始化即对齐角色。位置精确跟随，角色在镜头坐标(0,-2)。旋转目标为 atan2(ny,nx)-π/2，使用最短角度差和指数平滑，10/s响应；不会跨±π突然绕一整圈。V只切换两档远近，均跟随并旋转；R立即重置位置和朝向。
+View: default minimumheight56/minimumwidth78, wide86/120; about45% larger view than the previous version. Both modes always follow the player and rotate with local gravity. Camera math is unchanged.
 
-验证：node --check game/main.js 通过；node --test game/*.test.mjs 两组通过。
+Local map: static rawworld-coordinate path; moving SVG viewBox centered at(player.x,-player.y), with fixed84×50.4 extent. SVG overflow is clipped. Redmarker remains at50%/50% regardless of location or restart, while the nearby terrain scrolls. North-up orientation remains stable.
 
-- 2637段，最大采样间隔0.31523；完整正向78.81秒、反向79.05秒。
-- 移动跳跃55次、82.48秒到达中心；无穿透、底面与端点接触、静止稳定检查通过。
-- 初始/四个象限/角度接缝/分帧平滑/完整路线的镜头检查通过。
-- 120Hz镜头检查最大角滞后15.68°、最大单步转角1.36°；独立30/60FPS主循环模拟均保证地面位于画面下半部、角色位置固定且全程完成。
-- 实际浏览器 A 键行走到外侧曲面：地面法线约(-0.986,0.165)，镜头角约1.395弧度；继续到法线约(-0.156,-0.988)，镜头角约2.979弧度。画面中的地面均位于角色下方。
-- 实际空格离地、V远近切换、R重置通过；仅保留三组UI，控制台error/warn为空。
-- 本地截图：camera-bend.jpg、camera-rotated.jpg；仅留本机，不提交Git。未录制视频或测量正式设备帧率。预览窗口不展示时浏览器存在后台节流，因此不把原生按键工具等待时长作为物理性能证据。
+UI: Into the spiral; Move; Jump; Zoom; Restart; WORLD MAP. Page language=en. Page title, description, ARIA labels, loading state and WebGL error message also translated. No Han characters remain in index.html or runtime UI strings.
 
-发布：沿用已授权的公开 GitHub Pages：https://fengziqian0206.github.io/NaiLong/ 。发布工作流同时运行物理与镜头测试。
+Checks: node --check game/main.js and node --test game/*.test.mjs pass. Two test groups cover physics and camera; forward130.425s, reverse130.617s,89 moving jumps, unchanged2.937-unit jump height, finite state, no penetration, underside/tip handling and stable idle. Camera full-route maximum angle lag10.67° and maximum step0.93°. Independent30/60FPS main-loop checks also pass.
+
+Browser:1440×900 and390×844 layouts checked. A moves player fromx130.839 tox70.734; map viewBox left edge follows from88.839 to28.734, while marker stays exactly42units from the left and25.2units from the top. R resets both player and map together. Space launches; V changes zoom. Console errors/warnings empty. Local screenshots:local-map-english.jpg andlocal-map-english-narrow.jpg (ignored byGit). No formal device performance test.
+
+Deployment: same authorized public GitHub Pages site, https://fengziqian0206.github.io/NaiLong/ . The workflow runs both physics and camera tests before deployment.

@@ -8,7 +8,7 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 } catch {
-  $('loading').textContent = '无法启动 WebGL。请开启浏览器硬件加速后刷新。';
+  $('loading').textContent = 'WebGL could not start. Enable hardware acceleration and reload.';
   throw new Error('WebGL is unavailable');
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -22,7 +22,7 @@ const keys = new Set();
 const debug = new URLSearchParams(location.search).has('debug');
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
 let last = performance.now(), accumulator = 0;
-let viewHeight = Math.max(38, 54 * window.innerHeight / window.innerWidth);
+let viewHeight = Math.max(56, 78 * window.innerHeight / window.innerWidth);
 
 function material(color, opacity = 1) {
   return new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, side: THREE.DoubleSide });
@@ -106,7 +106,8 @@ const arrowGeometry = new THREE.BufferGeometry().setFromPoints([
 arrow.add(new THREE.LineSegments(arrowGeometry, new THREE.LineBasicMaterial({ color: '#d76545' })));
 scene.add(arrow);
 
-$('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${(p.x / WORLD.scale).toFixed(2)},${(-p.y / WORLD.scale).toFixed(2)}`).join(' '));
+// Keep the map north-up and crop a fixed local area around the player.
+$('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' '));
 function clearInput() {
   keys.clear(); jumpQueued = false;
 }
@@ -157,7 +158,7 @@ function frame(now) {
     }
   }
   const aspect = window.innerWidth / window.innerHeight;
-  const targetHeight = wideView ? Math.max(60, 84 / aspect) : Math.max(38, 54 / aspect);
+  const targetHeight = wideView ? Math.max(86, 120 / aspect) : Math.max(56, 78 / aspect);
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
   updateCameraPose(cameraPose, player, delta);
@@ -172,7 +173,8 @@ function frame(now) {
   arrow.visible = !player.grounded;
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
-  $('map-player').setAttribute('cx', player.x / WORLD.scale); $('map-player').setAttribute('cy', -player.y / WORLD.scale);
+  $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
+  $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.floor(player.progress * 100);
   $('progress').innerHTML = `${String(percent).padStart(2, '0')}<span>%</span>`;
   $('progress-fill').style.width = `${percent}%`;
