@@ -179,7 +179,7 @@ function frame(now) {
   $('progress').innerHTML = `${String(percent).padStart(2, '0')}<span>%</span>`;
   $('progress-fill').style.width = `${percent}%`;
   if (debug) canvas.dataset.diagnostics = JSON.stringify({
-    x: player.x, y: player.y, grounded: player.grounded, jumps: player.jumps,
+    x: player.x, y: player.y, grounded: player.grounded, jumps: player.jumps, airJumpUsed: player.airJumpUsed,
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
     nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: cameraPose.x, cameraY: cameraPose.y, viewHeight,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,

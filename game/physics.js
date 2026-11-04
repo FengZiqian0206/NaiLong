@@ -80,7 +80,7 @@ export function resetPlayer(player) {
   const start=samplePath(.006);
   Object.assign(player,{x:start.x+start.nx*contact,y:start.y+start.ny*contact,
     vx:0,vy:0,nx:start.nx,ny:start.ny,tx:start.tx,ty:start.ty,
-    grounded:true,progress:start.progress,won:false,jumps:0,elapsed:0});
+    grounded:true,airJumpUsed:false,progress:start.progress,won:false,jumps:0,elapsed:0});
 }
 
 export function stepPlayer(player,input,dt) {
@@ -100,8 +100,9 @@ export function stepPlayer(player,input,dt) {
   const speed=tangential+clamp(desired-tangential,-maxChange,maxChange);
   let normalSpeed=player.vx*nx+player.vy*ny;
   if(wasGrounded) normalSpeed=0;
-  if(input.jump && wasGrounded) {
+  if(input.jump && (wasGrounded || !player.airJumpUsed)) {
     normalSpeed=PHYSICS.jumpSpeed;
+    player.airJumpUsed=!wasGrounded;
     player.grounded=false;
     player.jumps++;
   }
@@ -114,6 +115,7 @@ export function stepPlayer(player,input,dt) {
   const snapDistance=wasGrounded && !input.jump ? .10 : 0;
   player.grounded=ground.distance<=contact+snapDistance;
   if(player.grounded) {
+    player.airJumpUsed=false;
     player.x=ground.x+ground.nx*contact;
     player.y=ground.y+ground.ny*contact;
     // On a concave bend, resolving one capsule can overlap its neighbour.

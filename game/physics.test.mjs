@@ -40,6 +40,39 @@ for(let i=0;i<240;i++) {
 assert.ok(highest>2.5 && highest<3.1,'jump is about 3 world units high');
 assert.ok(airFrames>70,'jump is a visible arc');
 assert.ok(p.grounded,'jump lands');
+// One extra impulse is available throughout the airborne phase, never stacked.
+for(const [phase,waitFrames] of [['rising',18],['falling',72]]) {
+  resetPlayer(p);
+  assert.equal(p.airJumpUsed,false,'restart restores the airborne jump');
+  tick(p,0,true);
+  assert.equal(p.airJumpUsed,false,'ground jump does not consume the airborne jump');
+  for(let i=0;i<waitFrames;i++) tick(p);
+  assert.equal(p.grounded,false,`still airborne while ${phase}`);
+  const surface=nearestSurface(p.x,p.y),normalSpeed=p.vx*surface.nx+p.vy*surface.ny;
+  assert.ok(phase==='rising'?normalSpeed>0:normalSpeed<0,`second jump is tested while ${phase}`);
+  tick(p,0,true);
+  assert.equal(p.jumps,2,`one airborne jump accepted while ${phase}`);
+  assert.equal(p.airJumpUsed,true);
+  assert.equal(p.grounded,false);
+  assert.ok(Math.abs(p.vx*surface.nx+p.vy*surface.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
+    'second jump replaces normal velocity with its impulse, rather than adding to it');
+  const withoutThird={...p};
+  tick(p,0,true);
+  tick(withoutThird);
+  assert.deepEqual(p,withoutThird,'third press neither adds a jump nor changes velocity or flight');
+  for(let i=0;i<240 && !p.grounded;i++) tick(p);
+  assert.ok(p.grounded,'double jump returns to the ground');
+  assert.equal(p.airJumpUsed,false,'landing rearms the airborne jump');
+  assert.equal(p.jumps,2,'landing preserves the cumulative jump count');
+  tick(p,0,true);
+  assert.equal(p.jumps,3,'a fresh ground jump is available after landing');
+  assert.equal(p.airJumpUsed,false);
+  tick(p,0,true);
+  assert.equal(p.jumps,4,'landing restores exactly one further airborne jump');
+  resetPlayer(p);
+  assert.equal(p.airJumpUsed,false,'restart clears a consumed airborne jump');
+  assert.equal(p.jumps,0,'restart clears the cumulative jump count');
+}
 // Put the player under the start: gravity must point up and support upside-down play.
 const underside=samplePath(.03);
 Object.assign(p,{x:underside.x-underside.nx*contact,y:underside.y-underside.ny*contact,vx:0,vy:0,grounded:true});
@@ -48,6 +81,29 @@ assert.ok(p.ny<-.9 && p.grounded,'underside is a walkable surface');
 const underY=p.y;
 tick(p,0,true);
 assert.ok(p.y<underY && !p.grounded,'underside jump points away from ground');
+for(let i=0;i<18;i++) tick(p);
+const belowGround=nearestSurface(p.x,p.y);
+tick(p,0,true);
+assert.equal(p.jumps,2,'underside supports an airborne jump');
+assert.ok(p.vy<0,'underside airborne jump points down in world coordinates');
+assert.ok(Math.abs(p.vx*belowGround.nx+p.vy*belowGround.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
+  'underside airborne impulse uses the nearest ground normal');
+// A fall without an initial ground jump grants one airborne impulse, not two.
+resetPlayer(p);
+const wall=samplePath(.15);
+Object.assign(p,{x:wall.x+wall.nx*(contact+1.5),y:wall.y+wall.ny*(contact+1.5),
+  vx:0,vy:0,grounded:false,nx:0,ny:1});
+const wallGround=nearestSurface(p.x,p.y);
+tick(p,0,true);
+assert.equal(p.jumps,1,'falling without a ground jump permits one airborne jump');
+assert.equal(p.airJumpUsed,true);
+assert.ok(Math.abs(p.vx-wallGround.nx*(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8 &&
+  Math.abs(p.vy-wallGround.ny*(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
+  'airborne jump recomputes the nearest surface normal rather than using stale orientation');
+const withoutExtra={...p};
+tick(p,0,true);
+tick(withoutExtra);
+assert.deepEqual(p,withoutExtra,'a fall without a ground jump still has only one airborne impulse');
 resetPlayer(p);
 let minNormalY=1,maxProgress=0,frames=0;
 for(;frames<routeFrameLimit && !p.won;frames++) {
