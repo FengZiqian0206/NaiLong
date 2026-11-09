@@ -6,7 +6,8 @@
 
 我们通过小组讨论整理了《游戏流程草案 V2》，将游戏组织为一段从出生走向生命尽头的人生旅程，并明确各阶段的主线、可选支线、互动触发条件及结局衔接。
 
-![游戏流程草案 V2](artifacts/progress/game-flow-v2.png)
+<img width="4601" height="9040" alt="51bd5f09bd6262d983117f34fb3d835c" src="https://github.com/user-attachments/assets/0186b415-b198-4ec4-8332-5bc740a66ad2" />
+
 
 游戏主线依次包含：
 
@@ -53,7 +54,8 @@
 
 #### 反世界：黑白线描与回忆空间
 
-![反世界美术参考](artifacts/progress/reverse-world-reference.jpg)
+<img width="604" height="230" alt="a59170ef588318947d22f4cb4add929c" src="https://github.com/user-attachments/assets/19103c4d-aee5-46f8-99ef-b7ef2283a86b" />
+
 
 反世界采用黑白线描、深色背景和高对比轮廓，保留建筑、人物与物件的结构，同时弱化现实中的色彩。
 
@@ -61,7 +63,8 @@
 
 #### 正世界：彩色场景与当下经历
 
-![正世界美术参考](artifacts/progress/real-world-reference.jpg)
+<img width="606" height="229" alt="5a1c97fb6fe6ef4ec04b6bd1acaab82f" src="https://github.com/user-attachments/assets/26d483f2-b1f1-4022-a70d-b898fc8ae849" />
+
 
 正世界在手绘线条基础上加入鲜明的蓝色、粉色、绿色等色块，通过更丰富的色彩表现当下的人物、活动与生活经历。
 
@@ -69,7 +72,8 @@
 
 #### 角色：发光、渐变与星体意象
 
-![角色美术参考](artifacts/progress/character-reference.jpg)
+<img width="800" height="533" alt="d9a139db5e0e9751db8933cd2f2223be" src="https://github.com/user-attachments/assets/72af7add-ab34-4474-8f88-acb502d5f057" />
+
 
 角色方向参考圆润轮廓、柔和发光和渐变色彩，结合星体意象探索原创形象。
 
@@ -81,7 +85,8 @@
 
 我们整理了九类最终结果的设计框架，作为后续行为记录、结果匹配与结局文案的基础。
 
-![九类结果与行为触发设计](artifacts/progress/result-categories.png)
+<img width="2565" height="7234" alt="e94ba279a068bca2ddd7db3697e55777" src="https://github.com/user-attachments/assets/018cd1d1-57b1-4157-80e0-5d7209e8d92b" />
+
 
 | 类别 | 名称 | 主要关注的体验与行为 |
 |---|---|---|
