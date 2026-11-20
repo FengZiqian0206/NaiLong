@@ -1,9 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer } from './physics.js';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer } from './physics.js?v=20261120f';
 import { createCameraPose, updateCameraPose } from './camera.js';
 import { setupFullscreen } from './fullscreen.js';
-import { PANELS, GOAL, SCENE_LENGTH, floorPoint } from './scenes.js';
-import { addArtwork } from './artwork.js?v=20261120c';
+import { PANELS, GOAL, SCENE_LENGTH, TRANSITION, sceneAt, floorPoint } from './scenes.js?v=20261120f';
+import { addArtwork } from './artwork.js?v=20261120f';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -26,6 +26,7 @@ if (debug && parameters.has('panel')) {
   const panel = PANELS[Number(parameters.get('panel'))];
   if (panel) Object.assign(player, floorPoint(panel.start + (parameters.has('seam') ? panel.length - 1.2 : .8)));
 }
+if (debug && parameters.has('transition')) Object.assign(player, floorPoint((TRANSITION.start+TRANSITION.end)/2));
 const cameraPose = createCameraPose(player);
 const keys = new Set();
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
@@ -155,7 +156,8 @@ function frame(now) {
     nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
     fullscreen: Boolean(document.fullscreenElement),
-    scene:Math.min(6,1+Math.floor(player.progress*6)),sceneLength:SCENE_LENGTH,panels:PANELS.length,
+    scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
+    transition:routePosition>TRANSITION.start&&routePosition<TRANSITION.end,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

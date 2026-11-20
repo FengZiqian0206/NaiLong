@@ -42,6 +42,7 @@ const routes = [];
 // ground-only bot is no longer an appropriate camera traversal test.
 for (const fps of [30, 60]) {
   const player = samplePath(0), pose = createCameraPose(player), dt = 1 / fps;
+  const initialAngle = pose.angle;
   const frames = Math.ceil(WORLD.totalLength / PHYSICS.speed * fps);
   let maxStep = 0, maxLag = 0;
   for (let frame = 1; frame <= frames; frame++) {
@@ -60,7 +61,9 @@ for (const fps of [30, 60]) {
   assert.equal(player.progress, 1, 'camera covers the full route through all scenes');
   assert.ok(maxStep < .2, 'turns stay smooth without angle-wrap spins');
   assert.ok(maxLag < Math.PI / 2, 'ground remains in the lower half of the view');
-  routes.push({ fps, seconds: frames * dt, maximumTurnDegreesPerFrame: maxStep * 180 / Math.PI,
+  const turns = Math.abs(pose.angle - initialAngle) / (2 * Math.PI);
+  assert.ok(turns > 1.5 && turns < 1.75, 'the camera follows the shorter spiral without extra full revolutions');
+  routes.push({ fps, seconds: frames * dt, turns, maximumTurnDegreesPerFrame: maxStep * 180 / Math.PI,
     maximumLagDegrees: maxLag * 180 / Math.PI });
 }
 console.log(JSON.stringify({ ok: true, routes }, null, 2));

@@ -1,15 +1,13 @@
-// The original spiral is mirrored horizontally; route progress now starts left to right.
+// Keep the hand-drawn outer approach and one inner sweep, mirrored so D starts rightwards.
 const scale = 3;
+const targetLength = 626.2388390564602; // Half the previous six-scene route.
 const anchors = [
   [1790,150],[1530,150],[1320,160],[1080,125],[850,93],[600,88],
   [405,110],[260,180],[160,330],[105,520],[110,650],[215,805],
   [365,930],[590,980],[810,985],[1020,935],[1260,880],[1380,790],
   [1430,710],[1410,590],[1350,455],[1220,315],[1080,265],[870,235],
   [690,230],[540,255],[420,330],[375,445],[375,560],[435,650],
-  [575,735],[760,800],[935,805],[1100,775],[1185,715],[1208,610],
-  [1180,520],[1080,425],[960,370],[855,370],[745,400],[680,450],
-  [682,505],[730,590],[800,630],[890,640],[955,620],[990,580],
-  [975,540],[935,510],[895,505],[871,520],[873,546],[888,555],
+  [575,690],[730,650],[850,590],[888,555],
 ].map(([x,y]) => ({x:-(x-960)/18*scale,y:(540-y)/18*scale}));
 function spline(a,b,c,d,t,key) {
   return .5*(2*b[key]+(-a[key]+c[key])*t+(2*a[key]-5*b[key]+4*c[key]-d[key])*t*t+(-a[key]+3*b[key]-3*c[key]+d[key])*t*t*t);
@@ -21,6 +19,10 @@ for(let i=0;i<anchors.length-1;i++) {
   for(let j=0;j<steps;j++) points.push({x:spline(a,b,c,d,j/steps,'x'),y:spline(a,b,c,d,j/steps,'y')});
 }
 points.push({...anchors.at(-1)});
+let unscaledLength=0;
+for(let i=1;i<points.length;i++) unscaledLength+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
+const lengthScale=targetLength/unscaledLength;
+for(const point of points) {point.x*=lengthScale;point.y*=lengthScale;}
 const lengths=[0];
 for(let i=1;i<points.length;i++) lengths.push(lengths[i-1]+Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y));
 const tangents=points.map((p,i)=>{

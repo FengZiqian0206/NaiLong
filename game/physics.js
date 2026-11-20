@@ -1,9 +1,13 @@
-import { WORLD, nearestPath } from './world.js';
-import { COLLIDERS, SPAWN } from './scenes.js';
-export { WORLD, samplePath } from './world.js';
+import { WORLD, nearestPath } from './world.js?v=20261120f';
+import { COLLIDERS, SPAWN, SCENE_LENGTH } from './scenes.js?v=20261120f';
+export { WORLD, samplePath } from './world.js?v=20261120f';
 
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
-export const PHYSICS={speed:10,acceleration:48,airAcceleration:20,gravity:30,jumpSpeed:13.4,fixedDt:1/120};
+// The original controller was tuned for drawings 69.5820932 world units wide.
+// Keep that reference fixed when scene/route sizes change, scaling range together.
+const movementScale=Math.sqrt(SCENE_LENGTH/69.58209322849558);
+export const PHYSICS={speed:10*movementScale,acceleration:48*movementScale,
+  airAcceleration:20*movementScale,gravity:30,jumpSpeed:13.4*movementScale,fixedDt:1/120};
 
 export function nearestSurface(x,y) {
   let bestSurface=Infinity,bestDistance=0,best,bestT=0,qx=0,qy=0;
