@@ -1,164 +1,171 @@
 import assert from 'node:assert/strict';
 import {WORLD,PHYSICS,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js';
-const dt=PHYSICS.fixedDt,contact=WORLD.halfWidth+WORLD.radius;
-const routeFrameLimit=Math.ceil((WORLD.totalLength/PHYSICS.speed*1.5+5)/dt);
-assert.equal(WORLD.scale,3,'the world has an explicit enlarged scale');
-assert.equal(WORLD.radius,.62,'enlarging the terrain does not enlarge the player');
-assert.equal(WORLD.halfWidth,.85*WORLD.scale,'terrain thickness follows world scale');
-for(const [actual,original] of [[samplePath(0),{x:830/18,y:390/18}],[samplePath(1),{x:-72/18,y:-15/18}]]) {
-  assert.ok(Math.abs(actual.x-original.x*WORLD.scale)<1e-10,'anchor x scales around the world origin');
-  assert.ok(Math.abs(actual.y-original.y*WORLD.scale)<1e-10,'anchor y scales around the world origin');
-}
+import {nearestPath} from './world.js';
+import {COLLIDERS,SPAWN,GOAL,PANELS,worldAt} from './scenes.js';
+
+const dt=PHYSICS.fixedDt;
+assert.equal(WORLD.scale,3);
+assert.equal(WORLD.radius,.62,'art replacement preserves character size');
+assert.ok(samplePath(0).x<0 && samplePath(0).tx>.99,'mirrored world starts left and runs right');
+assert.ok(Math.abs(samplePath(0).x+830/18*WORLD.scale)<1e-8);
+assert.ok(Math.abs(samplePath(1).x-72/18*WORLD.scale)<1e-8);
+assert.ok(Math.abs(WORLD.totalLength/WORLD.scale-417.4814)<.05);
+const groups=new Map();
 let maxSpacing=0;
-for(let i=1;i<WORLD.points.length;i++) maxSpacing=Math.max(maxSpacing,
-  Math.hypot(WORLD.points[i].x-WORLD.points[i-1].x,WORLD.points[i].y-WORLD.points[i-1].y));
-assert.ok(maxSpacing<=.32,'collision sampling stays dense after enlargement');
-assert.ok(Math.abs(WORLD.totalLength/WORLD.scale-417.4814)<.05,'path length scales with the terrain');
+for(const segment of COLLIDERS) {
+  maxSpacing=Math.max(maxSpacing,Math.hypot(segment.bx-segment.ax,segment.by-segment.ay));
+  assert.ok(segment.radius>0 && segment.radius<1,'collision thickness comes from mask strokes');
+  const key=segment.platformId;
+  if(!groups.has(key)) groups.set(key,[]);
+  groups.get(key).push(segment);
+}
+assert.ok(maxSpacing<=.32+1e-8,'mask collision sampling remains dense');
+assert.equal(new Set(COLLIDERS.map(c=>c.sceneIndex)).size,6);
+for(let scene=0;scene<6;scene++) {
+  const platforms=new Set(COLLIDERS.filter(c=>c.sceneIndex===scene && c.platformIndex>=0).map(c=>c.platformIndex));
+  assert.equal(platforms.size,12,'all twelve mask components have colliders in each scene');
+}
 function tick(p,move=0,jump=false) {
   stepPlayer(p,{move,jump},dt);
   assert.ok(Number.isFinite(p.x+p.y+p.vx+p.vy),'finite simulation');
-  assert.ok(nearestSurface(p.x,p.y).distance>=contact-1e-6,'no ground penetration');
+  const surface=nearestSurface(p.x,p.y);
+  assert.ok(surface.surfaceDistance>=WORLD.radius-1e-5,
+    'no ground penetration '+JSON.stringify({progress:p.progress,depth:WORLD.radius-surface.surfaceDistance,platform:surface.platformId}));
+}
+function placeOnRoute(p,fraction,clearance=0) {
+  resetPlayer(p);
+  const path=samplePath(fraction),surface=nearestSurface(path.x,path.y),up=nearestPath(surface.x,surface.y);
+  Object.assign(p,{x:surface.x+up.nx*(surface.radius+WORLD.radius+clearance),
+    y:surface.y+up.ny*(surface.radius+WORLD.radius+clearance),nx:up.nx,ny:up.ny,
+    grounded:clearance===0,progress:up.progress});
 }
 const p=createPlayer();
 assert.ok(p.grounded);
+assert.ok(Math.abs(nearestSurface(p.x,p.y).surfaceDistance-WORLD.radius)<.02,'spawn is on the mask floor');
 const start={x:p.x,y:p.y};
-for(let i=0;i<240;i++) tick(p,-1);
-assert.ok(p.x<start.x-15,'A moves left from start');
-const beforeReverse=p.progress;
-for(let i=0;i<120;i++) tick(p,1);
-assert.ok(p.progress<beforeReverse,'D moves back along the surface');
+for(let i=0;i<12;i++) tick(p,1);
+assert.ok(p.x>start.x+.15,'D moves right from the mirrored start');
+const turnX=p.x;
+for(let i=0;i<24;i++) tick(p,-1);
+assert.ok(p.x<turnX && p.vx<0,'A reverses direction');
 resetPlayer(p);
+const jumpStart={x:p.x,y:p.y,nx:p.nx,ny:p.ny};
 tick(p,0,true);
-assert.equal(p.grounded,false,'Space launches');
-assert.equal(p.jumps,1);
+assert.equal(p.grounded,false);assert.equal(p.jumps,1);
 let highest=0,airFrames=0;
 for(let i=0;i<240;i++) {
-  highest=Math.max(highest,nearestSurface(p.x,p.y).distance-contact);
+  highest=Math.max(highest,(p.x-jumpStart.x)*jumpStart.nx+(p.y-jumpStart.y)*jumpStart.ny);
   if(!p.grounded) airFrames++;
   tick(p);
 }
-assert.ok(highest>2.5 && highest<3.1,'jump is about 3 world units high');
-assert.ok(airFrames>70,'jump is a visible arc');
-assert.ok(p.grounded,'jump lands');
-// One extra impulse is available throughout the airborne phase, never stacked.
+assert.ok(highest>2.5 && highest<3.1,'jump retains its original height');
+assert.ok(airFrames>70 && p.grounded,'jump has a visible arc and returns to the real floor');
 for(const [phase,waitFrames] of [['rising',18],['falling',72]]) {
-  resetPlayer(p);
-  assert.equal(p.airJumpUsed,false,'restart restores the airborne jump');
-  tick(p,0,true);
-  assert.equal(p.airJumpUsed,false,'ground jump does not consume the airborne jump');
-  for(let i=0;i<waitFrames;i++) tick(p);
-  assert.equal(p.grounded,false,`still airborne while ${phase}`);
-  const surface=nearestSurface(p.x,p.y),normalSpeed=p.vx*surface.nx+p.vy*surface.ny;
-  assert.ok(phase==='rising'?normalSpeed>0:normalSpeed<0,`second jump is tested while ${phase}`);
-  tick(p,0,true);
-  assert.equal(p.jumps,2,`one airborne jump accepted while ${phase}`);
-  assert.equal(p.airJumpUsed,true);
-  assert.equal(p.grounded,false);
-  assert.ok(Math.abs(p.vx*surface.nx+p.vy*surface.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
-    'second jump replaces normal velocity with its impulse, rather than adding to it');
-  const withoutThird={...p};
-  tick(p,0,true);
-  tick(withoutThird);
-  assert.deepEqual(p,withoutThird,'third press neither adds a jump nor changes velocity or flight');
-  for(let i=0;i<240 && !p.grounded;i++) tick(p);
-  assert.ok(p.grounded,'double jump returns to the ground');
-  assert.equal(p.airJumpUsed,false,'landing rearms the airborne jump');
-  assert.equal(p.jumps,2,'landing preserves the cumulative jump count');
-  tick(p,0,true);
-  assert.equal(p.jumps,3,'a fresh ground jump is available after landing');
+  resetPlayer(p);tick(p,0,true);
   assert.equal(p.airJumpUsed,false);
+  for(let i=0;i<waitFrames;i++) tick(p);
+  const up=nearestPath(p.x,p.y),speed=p.vx*up.nx+p.vy*up.ny;
+  assert.ok(!p.grounded && (phase==='rising'?speed>0:speed<0));
   tick(p,0,true);
-  assert.equal(p.jumps,4,'landing restores exactly one further airborne jump');
-  resetPlayer(p);
-  assert.equal(p.airJumpUsed,false,'restart clears a consumed airborne jump');
-  assert.equal(p.jumps,0,'restart clears the cumulative jump count');
+  assert.equal(p.jumps,2);assert.equal(p.airJumpUsed,true);
+  assert.ok(Math.abs(p.vx*up.nx+p.vy*up.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
+    'air jump resets normal speed without stacking');
+  const withoutThird={...p};tick(p,0,true);tick(withoutThird);
+  assert.deepEqual(p,withoutThird,'third press does not change flight');
+  for(let i=0;i<240 && !p.grounded;i++) tick(p);
+  assert.ok(p.grounded && !p.airJumpUsed,'landing rearms the air jump');
+  assert.equal(p.jumps,2);
+  tick(p,0,true);tick(p,0,true);
+  assert.equal(p.jumps,4,'both jumps are available after landing');
+  resetPlayer(p);assert.equal(p.jumps,0);assert.equal(p.airJumpUsed,false);
 }
-// Put the player under the start: gravity must point up and support upside-down play.
-const underside=samplePath(.03);
-Object.assign(p,{x:underside.x-underside.nx*contact,y:underside.y-underside.ny*contact,vx:0,vy:0,grounded:true});
-tick(p);
-assert.ok(p.ny<-.9 && p.grounded,'underside is a walkable surface');
-const underY=p.y;
-tick(p,0,true);
-assert.ok(p.y<underY && !p.grounded,'underside jump points away from ground');
-for(let i=0;i<18;i++) tick(p);
-const belowGround=nearestSurface(p.x,p.y);
-tick(p,0,true);
-assert.equal(p.jumps,2,'underside supports an airborne jump');
-assert.ok(p.vy<0,'underside airborne jump points down in world coordinates');
-assert.ok(Math.abs(p.vx*belowGround.nx+p.vy*belowGround.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
-  'underside airborne impulse uses the nearest ground normal');
-// A fall without an initial ground jump grants one airborne impulse, not two.
-resetPlayer(p);
-const wall=samplePath(.15);
-Object.assign(p,{x:wall.x+wall.nx*(contact+1.5),y:wall.y+wall.ny*(contact+1.5),
-  vx:0,vy:0,grounded:false,nx:0,ny:1});
-const wallGround=nearestSurface(p.x,p.y);
-tick(p,0,true);
-assert.equal(p.jumps,1,'falling without a ground jump permits one airborne jump');
-assert.equal(p.airJumpUsed,true);
-assert.ok(Math.abs(p.vx-wallGround.nx*(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8 &&
-  Math.abs(p.vy-wallGround.ny*(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8,
-  'airborne jump recomputes the nearest surface normal rather than using stale orientation');
-const withoutExtra={...p};
-tick(p,0,true);
-tick(withoutExtra);
-assert.deepEqual(p,withoutExtra,'a fall without a ground jump still has only one airborne impulse');
-resetPlayer(p);
-let minNormalY=1,maxProgress=0,frames=0;
-for(;frames<routeFrameLimit && !p.won;frames++) {
-  tick(p,-1);
-  assert.ok(p.grounded,'walking maintains contact around every bend');
-  minNormalY=Math.min(minNormalY,p.ny);
-  maxProgress=Math.max(maxProgress,p.progress);
-}
-assert.ok(minNormalY<-.9,'full journey includes upside-down traversal');
-assert.ok(p.won,'A alone traverses the complete spiral and reaches the centre');
-assert.ok(maxProgress>.995);
-let reverseFrames=0;
-while(p.progress>.007 && reverseFrames<routeFrameLimit) {
-  tick(p,1);
-  assert.ok(p.grounded,'reverse traversal maintains contact');
-  reverseFrames++;
-}
-assert.ok(p.progress<.007,'reverse traversal reaches the outer start');
-resetPlayer(p);
-for(let i=0;i<routeFrameLimit && !p.won;i++) {
-  const ground=nearestSurface(p.x,p.y);
-  // Follow the route after a jump transfers gravity to another coil's underside.
-  const move=(-ground.ny*ground.tx+ground.nx*ground.ty)>=0?-1:1;
-  tick(p,move,i%180===0);
-}
-assert.ok(p.won,'repeated moving jumps can traverse every coil');
-const movingJumps=p.jumps,movingJumpSeconds=p.elapsed;
-resetPlayer(p);
-for(let i=0;i<Math.ceil(480*WORLD.scale);i++) {
-  tick(p,1);
-  assert.ok(p.grounded,'outer rounded tip remains walkable');
-}
-assert.ok(p.ny<-.8 && p.progress>.05,'D rounds the tip and keeps moving on the underside');
-const undersideProgress=p.progress;
-for(let i=0;i<120;i++) tick(p,-1);
-assert.ok(p.progress<undersideProgress,'A reverses naturally on the underside');
-// Stationary contact should not oscillate between nearby segments.
-for(const fraction of [.1,.45,.7,.9,.98]) {
-  const surface=samplePath(fraction);
-  Object.assign(p,{x:surface.x+surface.nx*contact,y:surface.y+surface.ny*contact,vx:0,vy:0,grounded:true});
-  for(let i=0;i<30;i++) tick(p);
+// Up follows the inverted spiral, rather than a nearby floating platform's underside.
+placeOnRoute(p,.34);
+for(let i=0;i<30;i++) tick(p);
+assert.ok(p.grounded && p.ny<-.8,'inverted spiral terrain remains walkable');
+tick(p,0,true);for(let i=0;i<18;i++) tick(p);
+const invertedUp=nearestPath(p.x,p.y);tick(p,0,true);
+assert.equal(p.jumps,2);
+assert.ok(p.vx*invertedUp.nx+p.vy*invertedUp.ny>12,'double jump leaves inverted terrain');
+resetPlayer(p);p.y+=1.5;p.grounded=false;p.nx=1;p.ny=0;
+const fallUp=nearestPath(p.x,p.y);tick(p,0,true);
+assert.ok(Math.abs(p.vx*fallUp.nx+p.vy*fallUp.ny-(PHYSICS.jumpSpeed-PHYSICS.gravity*dt))<1e-8);
+assert.equal(p.jumps,1);assert.equal(p.airJumpUsed,true);
+const withoutExtra={...p};tick(p,0,true);tick(withoutExtra);
+assert.deepEqual(p,withoutExtra,'a fall without a ground jump has one air jump');
+
+const gap=worldAt(750*PANELS[0].pixelScale);
+assert.ok(nearestSurface(gap.x,gap.y).surfaceDistance>.4,'no hidden ribbon fills the first mask hole');
+resetPlayer(p);Object.assign(p,{x:gap.x+gap.nx*.8,y:gap.y+gap.ny*.8,nx:gap.nx,ny:gap.ny,grounded:false});
+for(let i=0;i<60;i++) tick(p);
+assert.ok((p.x-gap.x)*gap.nx+(p.y-gap.y)*gap.ny<.1,'player drops through the hole onto the lower drawn ledge');
+// An underside impact stops ascent without granting another airborne jump.
+const roofPanel=PANELS[3],roofLine=roofPanel.source.platforms[7];
+const roof=worldAt(roofPanel.start+(roofLine.x1+roofLine.x2)/2*roofPanel.pixelScale,
+  (roofPanel.baseline-roofLine.y1-roofLine.halfThickness)*roofPanel.pixelScale-WORLD.radius-.3);
+resetPlayer(p);Object.assign(p,{x:roof.x,y:roof.y,nx:roof.nx,ny:roof.ny,
+  vx:roof.nx*PHYSICS.jumpSpeed,vy:roof.ny*PHYSICS.jumpSpeed,grounded:false,airJumpUsed:true});
+for(let i=0;i<12;i++) tick(p);
+assert.ok(!p.grounded && p.airJumpUsed,'ceiling collision is not a landing and does not rearm jump');
+assert.ok(p.vx*p.nx+p.vy*p.ny<=0,'solid platform underside stops ascent');
+let exposedPlatforms=0,elevatedPlatforms=0;
+const contactScenes=new Set();
+for(const [key,segments] of groups) {
+  const segment=segments[Math.floor(segments.length/2)],s=(segment.s0+segment.s1)/2;
+  const up=samplePath(s/WORLD.totalLength),x=(segment.ax+segment.bx)/2,y=(segment.ay+segment.by)/2;
+  const sx=x+up.nx*(segment.radius+WORLD.radius),sy=y+up.ny*(segment.radius+WORLD.radius);
+  const closest=nearestSurface(sx,sy);
+  if(closest.surfaceDistance<WORLD.radius-.01 || closest.platformId!==key) continue;
+  resetPlayer(p);Object.assign(p,{x:sx,y:sy,nx:up.nx,ny:up.ny,grounded:true});
+  for(let i=0;i<12;i++) tick(p);
+  if(!p.grounded) continue;
   const position={x:p.x,y:p.y};
-  for(let i=0;i<120;i++) {tick(p);assert.ok(p.grounded,'idle contact is stable');}
-  assert.ok(Math.hypot(p.x-position.x,p.y-position.y)<1e-4,'idle position does not jitter');
+  for(let i=0;i<60;i++) {tick(p);assert.ok(p.grounded,'exposed platform contact stays stable');}
+  assert.ok(Math.hypot(p.x-position.x,p.y-position.y)<.003,'idle contact does not jitter');
+  exposedPlatforms++;contactScenes.add(segment.sceneIndex);
+  if((x-up.x)*up.nx+(y-up.y)*up.ny>1) elevatedPlatforms++;
 }
-// A second neighbouring coil can become the nearest ground during free flight.
-// Place above the middle coil and check that gravity pulls into its local surface.
-const middle=samplePath(.65);
-Object.assign(p,{x:middle.x+middle.nx*(contact+1.5),y:middle.y+middle.ny*(contact+1.5),vx:0,vy:0,grounded:false,won:false});
-const initialDistance=nearestSurface(p.x,p.y).distance;
-tick(p);
-assert.ok(nearestSurface(p.x,p.y).distance<initialDistance,'free fall uses nearest ground');
-for(let i=0;i<120;i++) tick(p);
-assert.ok(p.grounded,'free fall settles on the middle coil');
-console.log(JSON.stringify({ok:true,scale:WORLD.scale,radius:WORLD.radius,halfWidth:WORLD.halfWidth,
-  segments:WORLD.points.length-1,maxSpacing,pathLength:WORLD.totalLength,
-  walkSeconds:frames*dt,reverseSeconds:reverseFrames*dt,jumpHeight:highest,airFrames,minNormalY,
-  movingJumps,movingJumpSeconds},null,2));
+assert.ok(exposedPlatforms>=120 && elevatedPlatforms>=60,'raised art platforms really support the player');
+assert.equal(contactScenes.size,6);
+resetPlayer(p);
+for(let i=0;i<90;i++) {tick(p,1);assert.ok(p.ny>.95,'low ledges never invert local gravity');}
+// Cross all panel/scene joins on their actual floor capsules.
+for(const panel of PANELS.slice(1)) {
+  placeOnRoute(p,(panel.start-1)/WORLD.totalLength);
+  for(let i=0;i<96;i++) tick(p,1);
+  assert.ok(p.progress*WORLD.totalLength>panel.start,'panel seam is traversable '+JSON.stringify({panel:panel.index,s:p.progress*WORLD.totalLength,seam:panel.start}));
+}
+resetPlayer(p);Object.assign(p,GOAL,{vx:0,vy:0,grounded:true});tick(p);
+assert.ok(p.won,'the final actual floor reaches the goal');
+
+// A real-input route follows the floor, jumps low ledges and the gap bridges,
+// and uses its extra airborne impulse near the apex. No position overrides.
+resetPlayer(p);
+let lastJump=-999,maxProgress=0,stalled=0,routeAirFrames=0;
+const visitedScenes=new Set();
+const routeLimit=Math.ceil(WORLD.totalLength/PHYSICS.speed*1.8/dt);
+for(let frame=0;frame<routeLimit && !p.won;frame++) {
+  const up=nearestPath(p.x,p.y),s=p.progress*WORLD.totalLength;
+  const h=(p.x-up.x)*up.nx+(p.y-up.y)*up.ny;
+  const panel=PANELS[Math.min(PANELS.length-1,Math.floor(s/PANELS[0].length))];
+  visitedScenes.add(panel.sceneIndex);
+  const danger=panel.source.platforms.some(line=>{
+    const height=(panel.baseline-line.y1)*panel.pixelScale;
+    const a=panel.start+line.x1*panel.pixelScale,b=panel.start+line.x2*panel.pixelScale;
+    return height>.3 && height<4.5 && s>a-2.5 && s<b && h<height+line.halfThickness*panel.pixelScale+.4;
+  });
+  const jump=(p.grounded && danger && frame-lastJump>12) ||
+    (!p.grounded && !p.airJumpUsed && p.vx*p.nx+p.vy*p.ny<2);
+  if(jump) lastJump=frame;
+  const move=!p.grounded && s>WORLD.totalLength-6?0:1;
+  tick(p,move,jump);
+  if(!p.grounded) routeAirFrames++;
+  if(p.progress>maxProgress+1e-6){maxProgress=p.progress;stalled=0;}else stalled++;
+  assert.ok(stalled<360,'authored route keeps progressing through platforms and holes');
+}
+assert.ok(p.won,'jumping traverses the complete authored spiral');
+assert.equal(visitedScenes.size,6,'the playable route crosses all six scenes');
+assert.ok(routeAirFrames>1000 && p.jumps>20,'the route exercises real platform jumping');
+console.log(JSON.stringify({ok:true,segments:COLLIDERS.length,maxSpacing,pathLength:WORLD.totalLength,
+  platformGroups:groups.size,exposedPlatforms,elevatedPlatforms,jumpHeight:highest,airFrames,
+  routeSeconds:p.elapsed,routeJumps:p.jumps,routeAirFrames},null,2));

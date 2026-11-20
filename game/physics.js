@@ -1,74 +1,31 @@
-// The same sampled centreline drives the visible ribbon and its capsule collider.
-// Coordinates follow the supplied sketch; y points upwards in the game world.
-const worldScale=3;
-const anchors = [
-  [1790,150],[1530,150],[1320,160],[1080,125],[850,93],[600,88],
-  [405,110],[260,180],[160,330],[105,520],[110,650],[215,805],
-  [365,930],[590,980],[810,985],[1020,935],[1260,880],[1380,790],
-  [1430,710],[1410,590],[1350,455],[1220,315],[1080,265],[870,235],
-  [690,230],[540,255],[420,330],[375,445],[375,560],[435,650],
-  [575,735],[760,800],[935,805],[1100,775],[1185,715],[1208,610],
-  [1180,520],[1080,425],[960,370],[855,370],[745,400],[680,450],
-  [682,505],[730,590],[800,630],[890,640],[955,620],[990,580],
-  [975,540],[935,510],[895,505],[871,520],[873,546],[888,555],
-].map(([x,y]) => ({x:(x-960)/18*worldScale,y:(540-y)/18*worldScale}));
+import { WORLD, nearestPath } from './world.js';
+import { COLLIDERS, SPAWN } from './scenes.js';
+export { WORLD, samplePath } from './world.js';
 
-const lerp = (a,b,t) => a + (b-a)*t;
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
-function spline(a,b,c,d,t,key) {
-  return .5 * ((2*b[key]) + (-a[key]+c[key])*t +
-    (2*a[key]-5*b[key]+4*c[key]-d[key])*t*t +
-    (-a[key]+3*b[key]-3*c[key]+d[key])*t*t*t);
-}
-const points = [];
-for (let i=0;i<anchors.length-1;i++) {
-  const a=anchors[Math.max(0,i-1)],b=anchors[i],c=anchors[i+1],d=anchors[Math.min(anchors.length-1,i+2)];
-  let steps=Math.max(8,Math.ceil(Math.hypot(c.x-b.x,c.y-b.y)/.32));
-  let section,maxSpacing;
-  do {
-    section=[];maxSpacing=0;
-    for(let j=0;j<=steps;j++) {
-      const point={x:spline(a,b,c,d,j/steps,'x'),y:spline(a,b,c,d,j/steps,'y')};
-      if(j) maxSpacing=Math.max(maxSpacing,Math.hypot(point.x-section[j-1].x,point.y-section[j-1].y));
-      section.push(point);
-    }
-    if(maxSpacing>.32) steps=Math.ceil(steps*maxSpacing/.32)+1;
-  } while(maxSpacing>.32);
-  points.push(...section.slice(0,-1));
-}
-points.push({...anchors.at(-1)});
-const lengths=[0];
-for(let i=1;i<points.length;i++) lengths.push(lengths[i-1]+Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y));
-export const WORLD={points,scale:worldScale,halfWidth:.85*worldScale,radius:.62,totalLength:lengths.at(-1)};
 export const PHYSICS={speed:10,acceleration:48,airAcceleration:20,gravity:30,jumpSpeed:13.4,fixedDt:1/120};
-const contact=WORLD.halfWidth+WORLD.radius;
-
-export function samplePath(fraction) {
-  const target=clamp(fraction,0,1)*WORLD.totalLength;
-  let low=0,high=lengths.length-1;
-  while(low+1<high) {const mid=(low+high)>>1;if(lengths[mid]<=target) low=mid;else high=mid;}
-  const a=points[low],b=points[high],length=lengths[high]-lengths[low];
-  const tx=(b.x-a.x)/length,ty=(b.y-a.y)/length,t=(target-lengths[low])/length;
-  return {x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t),tx,ty,nx:ty,ny:-tx,progress:clamp(fraction,0,1)};
-}
 
 export function nearestSurface(x,y) {
-  let bestDistance=Infinity,bestIndex=0,bestT=0,qx=0,qy=0;
-  // ponytail: linear scan is ample for one character / ~5000 static segments.
-  // Add a spatial grid only if additional dynamic actors make this measurable.
-  for(let i=0;i<points.length-1;i++) {
-    const a=points[i],b=points[i+1],dx=b.x-a.x,dy=b.y-a.y;
-    const lengthSq=dx*dx+dy*dy,t=clamp(((x-a.x)*dx+(y-a.y)*dy)/lengthSq,0,1);
-    const px=a.x+t*dx,py=a.y+t*dy,distSq=(x-px)**2+(y-py)**2;
-    if(distSq>=bestDistance) continue;
-    bestDistance=distSq;
-    bestIndex=i;bestT=t;qx=px;qy=py;
+  let bestSurface=Infinity,bestDistance=0,best,bestT=0,qx=0,qy=0;
+  // ponytail: one character scans the static mask-derived capsules. Add a
+  // spatial grid if profiling shows this scan limiting additional actors.
+  for(const segment of COLLIDERS) {
+    const dx=segment.bx-segment.ax,dy=segment.by-segment.ay;
+    const lengthSq=dx*dx+dy*dy,t=lengthSq?clamp(((x-segment.ax)*dx+(y-segment.ay)*dy)/lengthSq,0,1):0;
+    const px=segment.ax+t*dx,py=segment.ay+t*dy,distSq=(x-px)**2+(y-py)**2;
+    const cutoff=bestSurface+segment.radius;
+    if(cutoff<0 || distSq>=cutoff*cutoff) continue;
+    const distance=Math.sqrt(distSq);
+    bestSurface=distance-segment.radius;bestDistance=distance;
+    best=segment;bestT=t;qx=px;qy=py;
   }
-  const a=points[bestIndex],b=points[bestIndex+1],length=lengths[bestIndex+1]-lengths[bestIndex];
-  const distance=Math.sqrt(bestDistance),tx=(b.x-a.x)/length,ty=(b.y-a.y)/length;
-  return {x:qx,y:qy,tx,ty,nx:distance>1e-8?(x-qx)/distance:ty,
-    ny:distance>1e-8?(y-qy)/distance:-tx,distance,
-    progress:(lengths[bestIndex]+bestT*length)/WORLD.totalLength};
+  const dx=best.bx-best.ax,dy=best.by-best.ay,length=Math.hypot(dx,dy);
+  const tx=length?dx/length:1,ty=length?dy/length:0;
+  return {x:qx,y:qy,tx,ty,nx:bestDistance>1e-8?(x-qx)/bestDistance:-ty,
+    ny:bestDistance>1e-8?(y-qy)/bestDistance:tx,distance:bestDistance,
+    surfaceDistance:bestSurface,radius:best.radius,id:best.id,
+    platformId:best.platformId,
+    progress:(best.s0+bestT*(best.s1-best.s0))/WORLD.totalLength};
 }
 
 export function createPlayer() {
@@ -77,10 +34,10 @@ export function createPlayer() {
   return player;
 }
 export function resetPlayer(player) {
-  const start=samplePath(.006);
-  Object.assign(player,{x:start.x+start.nx*contact,y:start.y+start.ny*contact,
-    vx:0,vy:0,nx:start.nx,ny:start.ny,tx:start.tx,ty:start.ty,
-    grounded:true,airJumpUsed:false,progress:start.progress,won:false,jumps:0,elapsed:0});
+  const ground=nearestSurface(SPAWN.x,SPAWN.y);
+  Object.assign(player,{x:SPAWN.x,y:SPAWN.y,
+    vx:0,vy:0,nx:SPAWN.nx,ny:SPAWN.ny,tx:-SPAWN.ny,ty:SPAWN.nx,
+    grounded:true,groundId:ground.platformId,airJumpUsed:false,progress:SPAWN.progress,won:false,jumps:0,elapsed:0});
 }
 
 export function stepPlayer(player,input,dt) {
@@ -88,10 +45,12 @@ export function stepPlayer(player,input,dt) {
   // Clamp callers as a last defence; the render loop supplies fixed 1/120 s steps.
   dt=Math.min(dt,1/60);
   let ground=nearestSurface(player.x,player.y);
-  const wasGrounded=player.grounded && ground.distance<contact+.12;
-  const nx=ground.nx,ny=ground.ny;
-  // A/D are local left/right relative to the current ground normal. Keeping
-  // this orientation through a rounded end also allows walking onto its underside.
+  const local=nearestPath(player.x,player.y);
+  const nx=local.nx,ny=local.ny;
+  const wasGrounded=player.grounded && ground.surfaceDistance<WORLD.radius+.12 && ground.nx*nx+ground.ny*ny>.5;
+  const previousPlatform=ground.platformId;
+  // The nearest spiral region defines up. Floating platforms still collide on
+  // both faces, but their undersides cannot reverse gravity or reset a jump.
   const tx=-ny,ty=nx;
   const move=clamp(input.move||0,-1,1);
   const tangential=player.vx*tx+player.vy*ty;
@@ -111,28 +70,27 @@ export function stepPlayer(player,input,dt) {
   player.vy=ty*speed+ny*normalSpeed;
   player.x+=player.vx*dt;
   player.y+=player.vy*dt;
-  ground=nearestSurface(player.x,player.y);
-  const snapDistance=wasGrounded && !input.jump ? .10 : 0;
-  player.grounded=ground.distance<=contact+snapDistance;
-  if(player.grounded) {
-    player.airJumpUsed=false;
-    player.x=ground.x+ground.nx*contact;
-    player.y=ground.y+ground.ny*contact;
-    // On a concave bend, resolving one capsule can overlap its neighbour.
-    for(let i=0;i<4;i++) {
-      const next=nearestSurface(player.x,player.y);
-      ground=next;
-      if(next.distance>=contact-1e-8) break;
-      player.x=next.x+next.nx*(contact+1e-7);
-      player.y=next.y+next.ny*(contact+1e-7);
-    }
+  player.grounded=false;
+  player.groundId=null;
+  // Resolve neighbouring capsules as well as separate platforms meeting at a seam.
+  for(let i=0;i<40;i++) {
+    ground=nearestSurface(player.x,player.y);
+    const walkable=ground.nx*nx+ground.ny*ny>.5;
+    const snapDistance=i===0 && wasGrounded && !input.jump && walkable &&
+      ground.platformId===previousPlatform ? .10 : 0;
+    if(ground.surfaceDistance>WORLD.radius+snapDistance) break;
+    player.x=ground.x+ground.nx*(ground.radius+WORLD.radius+1e-7);
+    player.y=ground.y+ground.ny*(ground.radius+WORLD.radius+1e-7);
     const inward=player.vx*ground.nx+player.vy*ground.ny;
-    player.vx-=ground.nx*inward;
-    player.vy-=ground.ny*inward;
+    if(inward<0) {player.vx-=ground.nx*inward;player.vy-=ground.ny*inward;}
+    if(walkable) {
+      player.grounded=true;player.groundId=ground.platformId;player.airJumpUsed=false;
+    }
   }
-  player.nx=ground.nx;player.ny=ground.ny;
-  player.tx=-ground.ny;player.ty=ground.nx;
-  player.progress=ground.progress;
+  const current=nearestPath(player.x,player.y);
+  player.nx=current.nx;player.ny=current.ny;
+  player.tx=-current.ny;player.ty=current.nx;
+  player.progress=current.progress;
   player.elapsed+=dt;
-  if(player.grounded && ground.progress>.995) player.won=true;
+  if(player.grounded && current.progress>1-1.5/WORLD.totalLength) player.won=true;
 }

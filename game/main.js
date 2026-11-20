@@ -1,7 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, samplePath, createPlayer, resetPlayer, stepPlayer } from './physics.js';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer } from './physics.js';
 import { createCameraPose, updateCameraPose } from './camera.js';
 import { setupFullscreen } from './fullscreen.js';
+import { PANELS, GOAL, SCENE_LENGTH, floorPoint } from './scenes.js';
+import { addArtwork } from './artwork.js?v=20261120c';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -14,13 +16,18 @@ try {
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#f4f2e9');
+scene.background = new THREE.Color('#9bb3a1');
 const camera = new THREE.OrthographicCamera(-60, 60, 35, -35, .1, 200);
 camera.position.z = 100;
+const parameters = new URLSearchParams(location.search);
+const debug = parameters.has('debug');
 const player = createPlayer();
+if (debug && parameters.has('panel')) {
+  const panel = PANELS[Number(parameters.get('panel'))];
+  if (panel) Object.assign(player, floorPoint(panel.start + (parameters.has('seam') ? panel.length - 1.2 : .8)));
+}
 const cameraPose = createCameraPose(player);
 const keys = new Set();
-const debug = new URLSearchParams(location.search).has('debug');
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
 let last = performance.now(), accumulator = 0;
 let viewHeight = Math.max(28, 40 * window.innerHeight / window.innerWidth);
@@ -34,68 +41,17 @@ function disk(radius, color, x, y, z, parent = scene) {
   parent.add(mesh);
   return mesh;
 }
-function ribbon(width, color, z, offsetY = 0, opacity = 1) {
-  const vertices = [];
-  const points = WORLD.points;
-  for (let i = 0; i < points.length; i++) {
-    const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    const nx = (b.y - a.y) / len * width, ny = -(b.x - a.x) / len * width;
-    vertices.push(points[i].x + nx, points[i].y + ny + offsetY, z, points[i].x - nx, points[i].y - ny + offsetY, z);
-  }
-  const indices = [];
-  for (let i = 0; i < points.length - 1; i++) {
-    const j = i * 2;
-    indices.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setIndex(indices);
-  const mat = material(color, opacity);
-  scene.add(new THREE.Mesh(geometry, mat));
-  for (const p of [points[0], points.at(-1)]) {
-    const cap = new THREE.Mesh(new THREE.CircleGeometry(width, 32), mat);
-    cap.position.set(p.x, p.y + offsetY, z);
-    scene.add(cap);
-  }
-}
-
-// A quiet paper grid makes gravity direction and movement readable.
-const gridPositions = [];
-for (let x = -120 * WORLD.scale; x <= 120 * WORLD.scale; x += 4) {
-  for (let y = -90 * WORLD.scale; y <= 90 * WORLD.scale; y += 4) gridPositions.push(x, y, -3);
-}
-const gridGeometry = new THREE.BufferGeometry();
-gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
-scene.add(new THREE.Points(gridGeometry, new THREE.PointsMaterial({ color: '#bac2b4', size: .055, sizeAttenuation: true })));
-ribbon(WORLD.halfWidth + .12 * WORLD.scale, '#293e3b', -1, -.45 * WORLD.scale, .09);
-ribbon(WORLD.halfWidth, '#293e3b', 0);
-ribbon(.035 * WORLD.scale, '#6c8173', .02);
-
-// Small in-world route marks stay subordinate to the continuous terrain.
-const marks = [];
-for (let f = .06; f < .95; f += .052) {
-  const p = samplePath(f), size = .22 * WORLD.scale;
-  marks.push(p.x - p.tx * size + p.nx * size, p.y - p.ty * size + p.ny * size, .05,
-    p.x + p.tx * size, p.y + p.ty * size, .05,
-    p.x + p.tx * size, p.y + p.ty * size, .05,
-    p.x - p.tx * size - p.nx * size, p.y - p.ty * size - p.ny * size, .05);
-}
-const markGeometry = new THREE.BufferGeometry();
-markGeometry.setAttribute('position', new THREE.Float32BufferAttribute(marks, 3));
-scene.add(new THREE.LineSegments(markGeometry, new THREE.LineBasicMaterial({ color: '#c0c6a7', transparent: true, opacity: .6 })));
-
 const hero = new THREE.Group();
 scene.add(hero);
 disk(WORLD.radius + .075, '#f4f2e9', 0, 0, .9, hero);
 disk(WORLD.radius, '#d76545', 0, 0, 1, hero);
 disk(.055, '#f4f2e9', -.18, .2, 1.1, hero);
 disk(.055, '#f4f2e9', .18, .2, 1.1, hero);
-const goalPoint = samplePath(1);
-const goal = new THREE.Mesh(new THREE.RingGeometry(.95 * WORLD.scale, 1.02 * WORLD.scale, 48), material('#d76545'));
+const goalPoint = GOAL;
+const goal = new THREE.Mesh(new THREE.RingGeometry(.85, .94, 48), material('#f3d790'));
 goal.position.set(goalPoint.x, goalPoint.y, 2);
 scene.add(goal);
-const goalCore = disk(.22 * WORLD.scale, '#e4bc81', goalPoint.x, goalPoint.y, 2);
+const goalCore = disk(.22, '#e4bc81', goalPoint.x, goalPoint.y, 2);
 
 // Gravity indicator points from the character towards its nearest ground.
 const arrow = new THREE.Group();
@@ -106,6 +62,9 @@ const arrowGeometry = new THREE.BufferGeometry().setFromPoints([
 ]);
 arrow.add(new THREE.LineSegments(arrowGeometry, new THREE.LineBasicMaterial({ color: '#d76545' })));
 scene.add(arrow);
+let updateArtwork;
+try { updateArtwork = await addArtwork(scene); }
+catch(error) { $('loading').textContent = 'Scene artwork could not load. Please refresh to retry.'; throw error; }
 
 // Keep the map north-up and crop a fixed local area around the player.
 $('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' '));
@@ -170,7 +129,10 @@ function frame(now) {
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
   updateCameraPose(cameraPose, player, delta);
-  camera.position.set(cameraPose.x, cameraPose.y, 100);
+  const edgeMargin=viewHeight*aspect/2-1.2;
+  const routePosition=player.progress*WORLD.totalLength;
+  const edgeFraming=Math.max(0,edgeMargin-routePosition)-Math.max(0,edgeMargin-(WORLD.totalLength-routePosition));
+  camera.position.set(cameraPose.x+Math.cos(cameraPose.angle)*edgeFraming,cameraPose.y+Math.sin(cameraPose.angle)*edgeFraming,100);
   camera.rotation.z = cameraPose.angle;
   camera.left = -viewHeight * aspect / 2; camera.right = viewHeight * aspect / 2;
   camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2;
@@ -181,6 +143,7 @@ function frame(now) {
   arrow.visible = !player.grounded;
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
+  updateArtwork(player.progress,viewHeight*aspect,viewHeight,edgeFraming);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.floor(player.progress * 100);
@@ -189,9 +152,10 @@ function frame(now) {
   if (debug) canvas.dataset.diagnostics = JSON.stringify({
     x: player.x, y: player.y, grounded: player.grounded, jumps: player.jumps, airJumpUsed: player.airJumpUsed,
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
-    nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: cameraPose.x, cameraY: cameraPose.y, viewHeight,
+    nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
     fullscreen: Boolean(document.fullscreenElement),
+    scene:Math.min(6,1+Math.floor(player.progress*6)),sceneLength:SCENE_LENGTH,panels:PANELS.length,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
