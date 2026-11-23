@@ -4,15 +4,20 @@ import { PHYSICS } from './physics.js';
 import { WORLD, samplePath, nearestPath } from './world.js';
 
 const radians = degrees => degrees * Math.PI / 180;
-const playerAt = angle => ({ x: 13, y: -7, nx: -Math.sin(angle), ny: Math.cos(angle) });
+const playerAt = (angle, height = WORLD.radius) => ({
+  x: -Math.sin(angle) * (WORLD.ringRadius + height), y: Math.cos(angle) * (WORLD.ringRadius + height),
+  nx: -Math.sin(angle), ny: Math.cos(angle), falling: false, respawnId: 0,
+});
 function screenVector(pose, x, y) {
   return { x: x * Math.cos(pose.angle) + y * Math.sin(pose.angle),
     y: -x * Math.sin(pose.angle) + y * Math.cos(pose.angle) };
 }
-function checkFollow(pose, player) {
-  const screen = screenVector(pose, player.x - pose.x, player.y - pose.y);
-  assert.ok(Math.abs(screen.x) < 1e-10, 'player stays horizontally centered');
-  assert.ok(Math.abs(screen.y + 3.5) < 1e-10, 'player and horizon stay lower in the frame');
+function checkFollow(pose, player, viewHeight = 28) {
+  const ground = nearestPath(player.x, player.y);
+  const screen = screenVector(pose, ground.x - pose.x, ground.y - pose.y);
+  assert.ok(Math.abs(screen.x) < 1e-10, 'the local road stays horizontally centered');
+  assert.ok(Math.abs(screen.y + 3.5 + .2 * viewHeight + WORLD.radius + pose.lift) < 1e-10,
+    'road framing is independent of player altitude');
 }
 const start = samplePath(0);
 assert.ok(Math.abs(WORLD.ringRadius * Math.PI * 2 - WORLD.totalLength) < 1e-10);
@@ -32,6 +37,15 @@ for (const fraction of [-1, -.2, 0, .25, .5, .75, .999, 1, 1.2, 2.3]) {
   assert.ok(nearest.progress >= 0 && nearest.progress < 1);
 }
 assert.ok(Number.isFinite(nearestPath(0, 0).x + nearestPath(0, 0).y), 'the center has a deterministic finite nearest point');
+for (const viewHeight of [28, 56, 86]) {
+  const player = playerAt(0), pose = createCameraPose(player, viewHeight);
+  checkFollow(pose, player, viewHeight);
+  const roadY = screenVector(pose, 0 - pose.x, WORLD.ringRadius - pose.y).y;
+  const screenFraction = .5 - roadY / viewHeight;
+  const previousFraction = .5 + (3.5 + WORLD.radius) / viewHeight;
+  assert.ok(Math.abs(screenFraction - previousFraction - .2) < 1e-10,
+    'near, far and narrow framing lower the road by exactly 20% of viewport height');
+}
 for (const angle of [0, Math.PI / 2, Math.PI, -Math.PI / 2, radians(179)]) {
   const player = playerAt(angle), pose = createCameraPose(player);
   const gravity = screenVector(pose, -player.nx, -player.ny);
@@ -85,5 +99,46 @@ for (const fps of [30, 60]) {
   const turns = Math.abs(pose.angle - initialAngle) / (2 * Math.PI);
   routes.push({ fps, seconds: frames * dt, turns, maximumTurnDegreesPerFrame: maxStep * 180 / Math.PI,
     maximumLagDegrees: maxLag * 180 / Math.PI });
+
+  const grounded = playerAt(0), jumping = createCameraPose(grounded), originalY = jumping.y;
+  Object.assign(grounded, playerAt(0, WORLD.radius + 25));
+  for (let frame = 0; frame < fps * 2; frame++) {
+    updateCameraPose(jumping, grounded, dt);
+    assert.ok(jumping.y - originalY >= 0 && jumping.y - originalY <= .7 + 1e-10,
+      'even a large jump gives the camera at most a tiny vertical offset');
+  }
+  const highestLift = jumping.lift;
+  Object.assign(grounded, playerAt(0));
+  for (let frame = 0; frame < fps * 2; frame++) updateCameraPose(jumping, grounded, dt);
+  assert.ok(jumping.lift < .0001 && jumping.lift < highestLift, 'landing eases back to the same road framing');
+
+  const falling = playerAt(0), fixed = createCameraPose(falling), beforeFall = { ...fixed };
+  Object.assign(falling, playerAt(0, -1.5));
+  updateCameraPose(fixed, falling, dt);
+  assert.ok(Math.hypot(fixed.x - beforeFall.x, fixed.y - beforeFall.y) < 1e-10 && fixed.angle === beforeFall.angle,
+    'an early fall never pulls the camera below its road baseline');
+  Object.assign(falling, playerAt(.2, -3), { falling: true });
+  updateCameraPose(fixed, falling, dt);
+  assert.ok(fixed.fallLocked);
+  const frozen = { ...fixed };
+  Object.assign(falling, playerAt(.6, -20), { falling: true });
+  for (let frame = 0; frame < fps; frame++) updateCameraPose(fixed, falling, dt, 56);
+  assert.deepEqual(fixed, frozen, 'fall lock freezes position, rotation and zoom framing until respawn');
+  Object.assign(falling, playerAt(.6));
+  updateCameraPose(fixed, falling, dt);
+  assert.ok(!fixed.fallLocked && fixed.recovering, 'an air jump can recover the view without triggering a respawn');
+  assert.ok(Math.hypot(fixed.x-frozen.x,fixed.y-frozen.y)<WORLD.ringRadius*.6,
+    'recovery eases to the player instead of teleporting');
+  for (let frame = 0; frame < fps; frame++) updateCameraPose(fixed, falling, dt);
+  assert.ok(!fixed.recovering, 'the camera resumes normal following after catching up');
+  checkFollow(fixed, falling);
+  falling.respawnId++;
+  updateCameraPose(fixed, falling, dt, 56);
+  assert.ok(!fixed.fallLocked && fixed.respawnId === falling.respawnId, 'respawn snaps and unlocks the camera');
+  checkFollow(fixed, falling, 56);
+
+  const radialFall = createCameraPose(playerAt(0));
+  updateCameraPose(radialFall, playerAt(0, -3), dt);
+  assert.ok(radialFall.fallLocked, 'radial depth also protects samples without a physics fall flag');
 }
 console.log(JSON.stringify({ ok: true, routes }, null, 2));

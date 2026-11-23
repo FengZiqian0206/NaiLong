@@ -1,9 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer, goalLapProgress } from './physics.js?v=20261123b';
-import { createCameraPose, updateCameraPose } from './camera.js?v=20261123b';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer, goalLapProgress } from './physics.js?v=20261123c';
+import { createCameraPose, updateCameraPose } from './camera.js?v=20261123c';
 import { setupFullscreen } from './fullscreen.js';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
-import { addArtwork } from './artwork.js?v=20261123b';
+import { addArtwork } from './artwork.js?v=20261123d';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -31,11 +31,11 @@ if (debug) {
     Object.assign(player, floorPoint(s), { lapProgress: (s - SPAWN.s) / WORLD.totalLength });
   }
 }
-const cameraPose = createCameraPose(player);
+let viewHeight = Math.max(28, 40 * window.innerHeight / window.innerWidth);
+const cameraPose = createCameraPose(player, viewHeight);
 const keys = new Set();
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
 let last = performance.now(), accumulator = 0;
-let viewHeight = Math.max(28, 40 * window.innerHeight / window.innerWidth);
 
 function material(color, opacity = 1) {
   return new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, side: THREE.DoubleSide });
@@ -78,7 +78,7 @@ function clearInput() {
 }
 function restart() {
   resetPlayer(player); clearInput();
-  Object.assign(cameraPose, createCameraPose(player));
+  Object.assign(cameraPose, createCameraPose(player, viewHeight));
   accumulator = 0; paused = false; finished = false; started = false;
   canvas.focus({ preventScroll: true });
 }
@@ -133,7 +133,7 @@ function frame(now) {
   const targetHeight = wideView ? Math.max(56, 78 / aspect) : Math.max(28, 40 / aspect);
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
-  updateCameraPose(cameraPose, player, delta);
+  updateCameraPose(cameraPose, player, delta, viewHeight);
   const routePosition = player.progress * WORLD.totalLength;
   camera.position.set(cameraPose.x, cameraPose.y, 100);
   camera.rotation.z = cameraPose.angle;
@@ -147,7 +147,7 @@ function frame(now) {
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
-  updateArtwork(player.progress, viewHeight * aspect, viewHeight);
+  updateArtwork(cameraPose.progress, viewHeight * aspect, viewHeight);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
@@ -158,6 +158,8 @@ function frame(now) {
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
     nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
+    falling: player.falling, fallLocked: cameraPose.fallLocked, cameraLift: cameraPose.lift,
+    respawns: player.respawnId, respawnScene: player.respawnScene + 1,
     fullscreen: Boolean(document.fullscreenElement),
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,

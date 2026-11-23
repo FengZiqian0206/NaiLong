@@ -2,13 +2,21 @@ import * as THREE from '../vendor/three.module.min.js';
 import {WORLD} from './world.js?v=20261123b';
 import {PANELS,TRANSITIONS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261123b';
 
-const edgeBlend=7.5;
+const edgeBlend=1.2;
+// Let the illustrated approach reach the top of its curb before revealing level 3.
+const fairgroundLead=1.7;
+// Pixel landmarks measured in the transition plate and its neighboring level.
+// Keep these local registrations through the blend so each prop appears once.
+const registrations=[
+  [{x:605.5,y:605,levelY:552,sx:1.099,sy:1.100},
+   {x:1916.5,y:593.5,levelY:542,sx:1.094,sy:1.094}],
+  [{x:491.5,y:596,levelY:542,sx:1.110,sy:1.107},
+   {x:1919.5,y:582.5,levelY:532,sx:1.096,sy:1.094}],
+];
 const transitionPaint=`
   uniform sampler2D art;
-  uniform vec2 crop;
   vec4 paint(vec2 uv){
-    vec4 color=texture2D(art,vec2(mix(crop.x,crop.y,uv.x),uv.y));
-    color.a*=smoothstep(0.,.018,uv.x)*(1.-smoothstep(.982,1.,uv.x));
+    vec4 color=texture2D(art,uv);
     color.a*=smoothstep(0.,.07,uv.y)*(1.-smoothstep(.97,1.,uv.y));
     return color;
   }`;
@@ -33,13 +41,13 @@ export async function addArtwork(scene) {
     Promise.all(TRANSITIONS.map(transition=>transition.image?loadTexture(transition.image):null)),
   ]);
   const meshes=[];
-  function meshStrip(start,end,bottom,top,floor,uniforms,fragment,renderOrder=0) {
+  function meshStrip(start,end,column,uniforms,fragment,renderOrder=0) {
     const vertices=[],uv=[],indices=[];
     const columns=Math.ceil((end-start)/.25);
     for(let i=0;i<=columns;i++) {
-      const u=i/columns,s=start+(end-start)*u;
-      const h=floor(s);
-      const low=worldAt(s,h+bottom),high=worldAt(s,h+top);
+      const t=i/columns,s=start+(end-start)*t;
+      const [bottom,top,u=t]=column(s);
+      const low=worldAt(s,bottom),high=worldAt(s,top);
       vertices.push(low.x,low.y,-2,high.x,high.y,-2);
       uv.push(u,0,u,1);
       if(i<columns) indices.push(i*2,i*2+2,i*2+1,i*2+1,i*2+2,i*2+3);
@@ -67,7 +75,10 @@ export async function addArtwork(scene) {
     meshes.push({mesh,center:(start+end)/2,length:end-start});
   }
   function neutralRoad(start,end,floor) {
-    meshStrip(start,end,-.3,0,floor,{},`
+    meshStrip(start,end,s=>{
+      const top=floor(s);
+      return [top-.3,top];
+    },{},`
       vec4 paint(vec2 uv){
         vec3 color=mix(vec3(.26,.31,.29),vec3(.58,.64,.58),smoothstep(.68,.95,uv.y));
         return vec4(color,smoothstep(0.,.2,uv.y));
@@ -83,19 +94,20 @@ export async function addArtwork(scene) {
     }
     const previous=TRANSITIONS[(index+PANELS.length-1)%PANELS.length];
     const next=TRANSITIONS[index];
-    meshStrip(start,end,(baseline-source.height)*pixelScale,baseline*pixelScale,()=>0,{
+    meshStrip(start,end,()=>[(baseline-source.height)*pixelScale,baseline*pixelScale],{
       art:{value:map.art},
       mask:{value:map.mask??map.art},
       hasMask:{value:Number(Boolean(map.mask))},
       fadeIn:{value:previous.image?edgeBlend/length:0},
+      fadeDelay:{value:index===2?fairgroundLead/length:0},
       fadeOut:{value:next.image?edgeBlend/length:0},
       floorUV:{value:1-baseline/source.height},
     },`
       uniform sampler2D art,mask;
-      uniform float hasMask,fadeIn,fadeOut,floorUV;
+      uniform float hasMask,fadeIn,fadeDelay,fadeOut,floorUV;
       vec4 paint(vec2 uv){
         vec4 color=texture2D(art,uv);
-        float edgeFade=(fadeIn>0.?smoothstep(0.,fadeIn,uv.x):1.)*
+        float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+fadeIn,uv.x):1.)*
           (fadeOut>0.?smoothstep(0.,fadeOut,1.-uv.x):1.);
         float black=min(texture2D(mask,uv).r,
           min(texture2D(mask,uv+vec2(0.,.004)).r,texture2D(mask,uv-vec2(0.,.004)).r));
@@ -115,22 +127,39 @@ export async function addArtwork(scene) {
       neutralRoad(groundStart,end,top);
       continue;
     }
-    // Match the supplied plate to nearby landmarks at the scene joins. Keep
-    // the same source-pixel scale along the ground and vertically.
-    const firstPixel=index===0?560:550;
-    const groundRow=index===0?609:598;
-    const endRow=index===0?602:598;
-    const scale=PANELS[index].pixelScale;
+    const [entry,exit]=registrations[index];
+    const before=PANELS[index],after=PANELS[index+1];
+    const {pixelScale}=before;
     const {width,height}=bridges[index].image;
-    const extendedStart=start-edgeBlend,extendedEnd=end+edgeBlend;
-    const firstU=(firstPixel-edgeBlend/scale)/width;
-    const lastU=firstU+(extendedEnd-extendedStart)/(scale*width);
-    const alignedFloor=s=>top(s)+(endRow-groundRow)*
-      THREE.MathUtils.smoothstep(s,start,end)*scale;
-    meshStrip(extendedStart,extendedEnd,(groundRow-height)*scale,groundRow*scale,alignedFloor,{
-      art:{value:bridges[index]},
-      crop:{value:new THREE.Vector2(firstU,lastU)},
-    },transitionPaint,-2);
+    const {length,exitTop,entryTop}=transition;
+    const startRow=entry.y+entry.sy*(before.baseline-exitTop/pixelScale-entry.levelY);
+    const endRow=exit.y+exit.sy*(after.baseline-entryTop/pixelScale-exit.levelY);
+    const leftRate=entry.sx/pixelScale,rightRate=exit.sx/pixelScale;
+    const averageRate=(exit.x-entry.x)/length;
+    const extra=index===1?fairgroundLead:0;
+    meshStrip(start-edgeBlend,end+extra+edgeBlend,s=>{
+      const t=THREE.MathUtils.clamp((s-start)/length,0,1);
+      // Preserve the scale at each join and distribute the width adjustment
+      // through the unique middle of the plate.
+      let sourceX=THREE.MathUtils.lerp(entry.x,exit.x,t)+length*t*(1-t)*
+        ((1-t)*(leftRate-averageRate)-t*(rightRate-averageRate));
+      if(s<start) sourceX=entry.x+(s-start)*leftRate;
+      if(s>end) sourceX=exit.x+(s-end)*rightRate;
+      const verticalScale=pixelScale/THREE.MathUtils.lerp(entry.sy,exit.sy,t);
+      const middleRow=index===0?THREE.MathUtils.lerp(607,601,t):598;
+      const roadIn=THREE.MathUtils.lerp(startRow,middleRow,THREE.MathUtils.smoothstep(s,start,start+5));
+      let roadRow;
+      if(index===1) {
+        // The pale curb stays at row 598 up to x=1928 and rises to the
+        // fairground pavement at x=1949. Follow that painted edge directly.
+        const curb=THREE.MathUtils.lerp(roadIn,581,THREE.MathUtils.smoothstep(sourceX,1928,1949));
+        roadRow=THREE.MathUtils.lerp(curb,endRow,THREE.MathUtils.smoothstep(sourceX,1949,1960));
+      } else {
+        roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-5,end));
+      }
+      const ceiling=top(s)+roadRow*verticalScale;
+      return [ceiling-height*verticalScale,ceiling,sourceX/width];
+    },{art:{value:bridges[index]}},transitionPaint,-2);
   }
 
   const colors=['#9bb3a1','#83bce9','#302238','#0b2231','#c7cdc0','#c7cdc0'].map(color=>new THREE.Color(color));

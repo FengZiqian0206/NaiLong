@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261123b';
+import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261123c';
 import {nearestPath} from './world.js?v=20261123b';
 import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint} from './scenes.js?v=20261123b';
 
@@ -136,6 +136,77 @@ assert.ok(nearestSurface(gap.x,gap.y).surfaceDistance>.4,'no hidden ribbon fills
 resetPlayer(p);Object.assign(p,{x:gap.x+gap.nx*.8,y:gap.y+gap.ny*.8,nx:gap.nx,ny:gap.ny,grounded:false});
 for(let i=0;i<60;i++) tick(p);
 assert.ok((p.x-gap.x)*gap.nx+(p.y-gap.y)*gap.ny<.1,'player drops through the hole onto the lower drawn ledge');
+assert.equal(p.falling,false,'the legitimate lower ledge does not count as a fatal fall');
+
+// Miss the lower ledge in the real first-floor hole, then fall without any teleport.
+resetPlayer(p);
+const miss=worldAt(700*PANELS[0].pixelScale,.7),firstRespawn=p.respawnId;
+Object.assign(p,miss,{grounded:false,airJumpUsed:true,lapProgress:(miss.s-SPAWN.s)/WORLD.totalLength});
+let fallingFrames=0;
+for(let i=0;i<240 && p.respawnId===firstRespawn;i++) {
+  tick(p);
+  if(p.falling) fallingFrames++;
+}
+assert.ok(fallingFrames>5,'a real missed floor produces a visible fall before respawning');
+assert.equal(p.respawnId,firstRespawn+1);
+assert.equal(p.respawnScene,0);
+assert.ok(Math.hypot(p.x-SPAWN.x,p.y-SPAWN.y)<1e-8,'a missed first-scene ledge returns to that scene start');
+assert.equal(p.lapProgress,0);assert.equal(p.won,false);
+assert.ok(p.grounded && !p.falling && !p.airJumpUsed && p.vx===0 && p.vy===0,
+  'respawn resets motion, falling and both jumps');
+assert.ok(p.elapsed>0,'fall respawn preserves elapsed run time');
+
+let respawnSceneChecks=0;
+for(const [index,bridge] of TRANSITIONS.entries()) {
+  // Match main's debug placement, then jump on its very first physics frame.
+  resetPlayer(p);
+  const point=floorPoint(bridge.end-.4),startId=p.respawnId;
+  Object.assign(p,point,{lapProgress:(point.s-SPAWN.s)/WORLD.totalLength});
+  tick(p,1,true);
+  assert.equal(p.respawnScene,index,'a debug spawn captures its real ground before takeoff');
+  const checkpoint=p.respawnLapProgress,up=nearestPath(p.x,p.y);
+  // Inject a missed floor beneath the bridge, then let actual lateral motion
+  // cross into the next scene while gravity finishes the fall.
+  Object.assign(p,{x:up.x+up.nx*(PHYSICS.fallHeight-.3),
+    y:up.y+up.ny*(PHYSICS.fallHeight-.3),vx:up.tx*PHYSICS.speed,
+    vy:up.ty*PHYSICS.speed,grounded:false,airJumpUsed:true});
+  let crossed=false;
+  for(let i=0;i<240 && p.respawnId===startId;i++) {
+    const beforeLap=p.lapProgress;
+    tick(p,1);
+    if(p.respawnId===startId) {
+      const next=PANELS[(index+1)%PANELS.length];
+      crossed ||= p.progress*WORLD.totalLength>=next.start && p.progress*WORLD.totalLength<next.start+4;
+      assert.equal(p.respawnScene,index,'airborne scene crossing cannot move the checkpoint');
+    } else assert.ok(p.lapProgress<=beforeLap,'respawning never grants forward lap progress');
+  }
+  const destination=floorPoint(PANELS[index].start+.8);
+  assert.ok(crossed,'the fall actually crosses the next scene boundary');
+  assert.equal(p.respawnId,startId+1);
+  assert.ok(Math.hypot(p.x-destination.x,p.y-destination.y)<1e-8,'every scene has its own floor spawn');
+  assert.ok(Math.abs(p.lapProgress-checkpoint)<1e-10 &&
+    Math.abs(checkpoint-(destination.s-SPAWN.s)/WORLD.totalLength)<1e-8,
+    'the return rewinds exactly to the current scene start');
+  assert.equal(p.jumps,1,'automatic respawn preserves the cumulative jump count');
+  assert.equal(p.won,false);
+  respawnSceneChecks++;
+}
+resetPlayer(p);
+for(let i=0;i<60;i++) tick(p,-1);
+assert.equal(p.respawnScene,5,'reverse travel across the seam owns the sixth scene');
+const reverseId=p.respawnId,reverseCheckpoint=p.respawnLapProgress,reverseUp=nearestPath(p.x,p.y);
+Object.assign(p,{x:reverseUp.x+reverseUp.nx*(PHYSICS.fallHeight-.3),
+  y:reverseUp.y+reverseUp.ny*(PHYSICS.fallHeight-.3),grounded:false});
+for(let i=0;i<240 && p.respawnId===reverseId;i++) tick(p);
+assert.equal(p.respawnId,reverseId+1);
+assert.ok(p.lapProgress<0 && Math.abs(p.lapProgress-reverseCheckpoint)<1e-8 && !p.won,
+  'a reverse-seam respawn cannot add a whole lap or win');
+const monotonicId=p.respawnId;
+resetPlayer(p);
+assert.equal(p.respawnId,monotonicId,'R preserves the monotonic camera reset marker');
+assert.ok(!p.falling && p.respawnScene===0 && p.respawnLapProgress===0 && p.elapsed===0 && p.jumps===0,
+  'R clears the complete run and resets checkpoint ownership');
+
 // An underside impact stops ascent without granting another airborne jump.
 const roofPanel=PANELS[1],roofLine=roofPanel.source.platforms[7];
 const roof=worldAt(roofPanel.start+(roofLine.x1+roofLine.x2)/2*roofPanel.pixelScale,
@@ -222,6 +293,7 @@ assert.ok(!p.won,'standing at the goal without travelling a lap cannot win');
 // A real-input route follows the floor, jumps low ledges and the gap bridges,
 // and uses its extra airborne impulse near the apex. No position overrides.
 resetPlayer(p);
+const routeRespawnId=p.respawnId;
 let lastJump=-999,maxProgress=0,stalled=0,routeAirFrames=0;
 const visitedScenes=new Set();
 const bridgeContactFrames=Array(6).fill(0);
@@ -253,10 +325,11 @@ for(let frame=0;frame<routeLimit && !p.won;frame++) {
   assert.ok(stalled<360,'authored route keeps progressing through platforms and holes '+JSON.stringify({s:p.progress*WORLD.totalLength,time:p.elapsed,ground:p.groundId,jumps:p.jumps,x:p.x,y:p.y,vx:p.vx,vy:p.vy,height:nearestPath(p.x,p.y).distance}));
 }
 assert.ok(p.won && p.lapProgress>=goalLapProgress,'jumping completes a real forward lap');
+assert.equal(p.respawnId,routeRespawnId,'the complete normal route has no unintended deaths');
 assert.equal(visitedScenes.size,6,'the playable route crosses all six scenes');
 assert.ok(bridgeContactFrames.every(frames=>frames>0),'the full route contacts all six real transition grounds '+JSON.stringify(bridgeContactFrames));
 assert.ok(routeAirFrames>1000 && p.jumps>10,'the route exercises real platform jumping');
 console.log(JSON.stringify({ok:true,segments:COLLIDERS.length,maxSpacing,pathLength:WORLD.totalLength,
   platformGroups:groups.size,exposedPlatforms,elevatedPlatforms,jumpHeight:highest,airFrames,
   routeSeconds:p.elapsed,routeJumps:p.jumps,routeAirFrames,bridgeContactFrames,dedicatedBridgeFrames,
-  rampChecks,maxRouteStep,maxContactRouteOffset},null,2));
+  rampChecks,respawnSceneChecks,fallingFrames,maxRouteStep,maxContactRouteOffset},null,2));

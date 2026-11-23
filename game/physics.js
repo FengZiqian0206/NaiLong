@@ -1,5 +1,5 @@
 import { WORLD, nearestPath } from './world.js?v=20261123b';
-import { COLLIDERS, SPAWN, GOAL, SCENE_LENGTH } from './scenes.js?v=20261123b';
+import { COLLIDERS, SPAWN, GOAL, SCENE_LENGTH, PANELS, floorPoint } from './scenes.js?v=20261123b';
 export { WORLD, samplePath } from './world.js?v=20261123b';
 
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
@@ -7,8 +7,18 @@ const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
 // Keep that reference fixed when scene/route sizes change, scaling range together.
 const movementScale=Math.sqrt(SCENE_LENGTH/69.58209322849558);
 export const PHYSICS={speed:10*movementScale,acceleration:48*movementScale,
-  airAcceleration:20*movementScale,gravity:30,jumpSpeed:13.4*movementScale,fixedDt:1/120};
+  airAcceleration:20*movementScale,gravity:30,jumpSpeed:13.4*movementScale,fixedDt:1/120,
+  fallHeight:-2.6,respawnHeight:-6};
 export const goalLapProgress=(GOAL.s-SPAWN.s)/WORLD.totalLength;
+const levelSpawns=PANELS.map(panel=>floorPoint(panel.start+.8));
+
+function rememberGround(player,ground,progress) {
+  player.respawnScene=ground.sceneIndex;
+  let distance=progress-levelSpawns[ground.sceneIndex].progress;
+  if(distance>.5) distance-=1;
+  if(distance<-.5) distance+=1;
+  player.respawnLapProgress=player.lapProgress-distance;
+}
 
 export function nearestSurface(x,y) {
   let bestSurface=Infinity,bestDistance=0,best,bestT=0,qx=0,qy=0;
@@ -29,7 +39,7 @@ export function nearestSurface(x,y) {
   return {x:qx,y:qy,tx,ty,nx:bestDistance>1e-8?(x-qx)/bestDistance:-ty,
     ny:bestDistance>1e-8?(y-qy)/bestDistance:tx,distance:bestDistance,
     surfaceDistance:bestSurface,radius:best.radius,id:best.id,
-    platformId:best.platformId,
+    platformId:best.platformId,sceneIndex:best.sceneIndex,
     progress:(best.s0+bestT*(best.s1-best.s0))/WORLD.totalLength};
 }
 
@@ -43,7 +53,8 @@ export function resetPlayer(player) {
   Object.assign(player,{x:SPAWN.x,y:SPAWN.y,
     vx:0,vy:0,nx:SPAWN.nx,ny:SPAWN.ny,tx:-SPAWN.ny,ty:SPAWN.nx,
     grounded:true,groundId:ground.platformId,airJumpUsed:false,progress:SPAWN.progress,
-    lapProgress:0,won:false,jumps:0,elapsed:0});
+    lapProgress:0,won:false,jumps:0,elapsed:0,falling:false,
+    respawnScene:0,respawnLapProgress:0,respawnId:player.respawnId??0});
 }
 
 export function stepPlayer(player,input,dt) {
@@ -54,6 +65,7 @@ export function stepPlayer(player,input,dt) {
   const local=nearestPath(player.x,player.y);
   const nx=local.nx,ny=local.ny;
   const wasGrounded=player.grounded && ground.surfaceDistance<WORLD.radius+.12 && ground.nx*nx+ground.ny*ny>.5;
+  if(wasGrounded) rememberGround(player,ground,local.progress);
   const previousPlatform=ground.platformId;
   // The circle's radial direction defines up. Floating platforms still collide on
   // both faces, but their undersides cannot reverse gravity or reset a jump.
@@ -82,6 +94,7 @@ export function stepPlayer(player,input,dt) {
   player.y+=player.vy*dt;
   player.grounded=false;
   player.groundId=null;
+  let supportGround;
   // Resolve neighbouring capsules as well as separate platforms meeting at a seam.
   for(let i=0;i<40;i++) {
     ground=nearestSurface(player.x,player.y);
@@ -95,6 +108,7 @@ export function stepPlayer(player,input,dt) {
     if(inward<0) {player.vx-=ground.nx*inward;player.vy-=ground.ny*inward;}
     if(walkable) {
       player.grounded=true;player.groundId=ground.platformId;player.airJumpUsed=false;
+      supportGround=ground;
     }
   }
   const current=nearestPath(player.x,player.y);
@@ -107,5 +121,16 @@ export function stepPlayer(player,input,dt) {
   player.lapProgress+=routeDelta;
   player.progress=current.progress;
   player.elapsed+=dt;
+  if(supportGround) rememberGround(player,supportGround,current.progress);
+  const height=Math.hypot(player.x,player.y)-WORLD.ringRadius;
+  player.falling=!player.grounded && height<PHYSICS.fallHeight;
+  if(!player.grounded && height<PHYSICS.respawnHeight) {
+    const spawn=levelSpawns[player.respawnScene],surface=nearestSurface(spawn.x,spawn.y);
+    Object.assign(player,{x:spawn.x,y:spawn.y,nx:spawn.nx,ny:spawn.ny,
+      tx:-spawn.ny,ty:spawn.nx,vx:0,vy:0,grounded:true,groundId:surface.platformId,
+      airJumpUsed:false,falling:false,progress:spawn.progress,
+      lapProgress:player.respawnLapProgress,won:false,respawnId:player.respawnId+1});
+    return;
+  }
   if(player.grounded && player.lapProgress>=goalLapProgress) player.won=true;
 }
