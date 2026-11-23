@@ -1,52 +1,23 @@
-// Keep the hand-drawn outer approach and one inner sweep, mirrored so D starts rightwards.
-const scale = 3;
-const targetLength = 626.2388390564602; // Half the previous six-scene route.
-const anchors = [
-  [1790,150],[1530,150],[1320,160],[1080,125],[850,93],[600,88],
-  [405,110],[260,180],[160,330],[105,520],[110,650],[215,805],
-  [365,930],[590,980],[810,985],[1020,935],[1260,880],[1380,790],
-  [1430,710],[1410,590],[1350,455],[1220,315],[1080,265],[870,235],
-  [690,230],[540,255],[420,330],[375,445],[375,560],[435,650],
-  [575,690],[730,650],[850,590],[888,555],
-].map(([x,y]) => ({x:-(x-960)/18*scale,y:(540-y)/18*scale}));
-function spline(a,b,c,d,t,key) {
-  return .5*(2*b[key]+(-a[key]+c[key])*t+(2*a[key]-5*b[key]+4*c[key]-d[key])*t*t+(-a[key]+3*b[key]-3*c[key]+d[key])*t*t*t);
-}
-const points=[];
-for(let i=0;i<anchors.length-1;i++) {
-  const a=anchors[Math.max(0,i-1)],b=anchors[i],c=anchors[i+1],d=anchors[Math.min(anchors.length-1,i+2)];
-  const steps=Math.max(12,Math.ceil(Math.hypot(c.x-b.x,c.y-b.y)/.2));
-  for(let j=0;j<steps;j++) points.push({x:spline(a,b,c,d,j/steps,'x'),y:spline(a,b,c,d,j/steps,'y')});
-}
-points.push({...anchors.at(-1)});
-let unscaledLength=0;
-for(let i=1;i<points.length;i++) unscaledLength+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
-const lengthScale=targetLength/unscaledLength;
-for(const point of points) {point.x*=lengthScale;point.y*=lengthScale;}
-const lengths=[0];
-for(let i=1;i<points.length;i++) lengths.push(lengths[i-1]+Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y));
-const tangents=points.map((p,i)=>{
-  const a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],length=Math.hypot(b.x-a.x,b.y-a.y);
-  return {x:(b.x-a.x)/length,y:(b.y-a.y)/length};
-});
-export const WORLD={points,scale,radius:.62,totalLength:lengths.at(-1)};
+// One clockwise circuit: D travels right from the top, with outward-facing up.
+export const SCENE_COUNT = 6;
+export const SCENE_LENGTH = 101.00626436394589;
+// Keep the scenes at the previous scale and give a 1380-pixel-wide portion
+// of each transition the same world units per pixel as the 2172-pixel art.
+export const TRANSITION_LENGTH = SCENE_LENGTH * 1380 / 2172;
+const totalLength = SCENE_COUNT * (SCENE_LENGTH + TRANSITION_LENGTH);
+const ringRadius = totalLength / (Math.PI * 2);
 export function samplePath(fraction) {
-  const progress=Math.max(0,Math.min(1,fraction)),target=progress*WORLD.totalLength;
-  let low=0,high=lengths.length-1;
-  while(low+1<high){const mid=(low+high)>>1;if(lengths[mid]<=target)low=mid;else high=mid;}
-  const a=points[low],b=points[high],length=lengths[high]-lengths[low],t=(target-lengths[low])/length;
-  const dx=tangents[low].x+(tangents[high].x-tangents[low].x)*t,dy=tangents[low].y+(tangents[high].y-tangents[low].y)*t;
-  const tangentLength=Math.hypot(dx,dy),tx=dx/tangentLength,ty=dy/tangentLength;
-  return{x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,tx,ty,nx:-ty,ny:tx,progress};
+  const progress = fraction - Math.floor(fraction), angle = progress * Math.PI * 2;
+  const nx = Math.sin(angle), ny = Math.cos(angle);
+  return { x: nx * ringRadius, y: ny * ringRadius, tx: ny, ty: -nx, nx, ny, progress };
 }
-export function nearestPath(x,y) {
-  let distanceSq=Infinity,index=0,bestT=0;
-  for(let i=0;i<points.length-1;i++) {
-    const a=points[i],b=points[i+1],dx=b.x-a.x,dy=b.y-a.y;
-    const t=Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/(dx*dx+dy*dy)));
-    const d=(x-a.x-t*dx)**2+(y-a.y-t*dy)**2;
-    if(d<distanceSq){distanceSq=d;index=i;bestT=t;}
-  }
-  const s=lengths[index]+bestT*(lengths[index+1]-lengths[index]);
-  return{...samplePath(s/WORLD.totalLength),distance:Math.sqrt(distanceSq)};
+const pointCount = Math.ceil(totalLength / .2);
+const points = Array.from({ length: pointCount + 1 }, (_, index) => {
+  const { x, y } = samplePath(index / pointCount);
+  return { x, y };
+});
+export const WORLD = { points, scale: 3, radius: .62, ringRadius, totalLength };
+export function nearestPath(x, y) {
+  return { ...samplePath(Math.atan2(x, y) / (Math.PI * 2)),
+    distance: Math.abs(Math.hypot(x, y) - ringRadius) };
 }

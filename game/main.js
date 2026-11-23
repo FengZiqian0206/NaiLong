@@ -1,9 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer } from './physics.js?v=20261120f';
-import { createCameraPose, updateCameraPose } from './camera.js';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer, goalLapProgress } from './physics.js?v=20261123b';
+import { createCameraPose, updateCameraPose } from './camera.js?v=20261123b';
 import { setupFullscreen } from './fullscreen.js';
-import { PANELS, GOAL, SCENE_LENGTH, TRANSITION, sceneAt, floorPoint } from './scenes.js?v=20261120f';
-import { addArtwork } from './artwork.js?v=20261120f';
+import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
+import { addArtwork } from './artwork.js?v=20261123b';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -22,11 +22,15 @@ camera.position.z = 100;
 const parameters = new URLSearchParams(location.search);
 const debug = parameters.has('debug');
 const player = createPlayer();
-if (debug && parameters.has('panel')) {
-  const panel = PANELS[Number(parameters.get('panel'))];
-  if (panel) Object.assign(player, floorPoint(panel.start + (parameters.has('seam') ? panel.length - 1.2 : .8)));
+if (debug) {
+  const panel = parameters.has('panel') ? PANELS[Number(parameters.get('panel'))] : null;
+  const transition = parameters.has('transition') ? TRANSITIONS[Number(parameters.get('transition') || 1) - 1] : null;
+  if (panel || transition) {
+    const s = transition ? (transition.start + transition.end) / 2
+      : panel.start + (parameters.has('seam') ? panel.length - 1.2 : parameters.has('middle') ? panel.length / 2 : .8);
+    Object.assign(player, floorPoint(s), { lapProgress: (s - SPAWN.s) / WORLD.totalLength });
+  }
 }
-if (debug && parameters.has('transition')) Object.assign(player, floorPoint((TRANSITION.start+TRANSITION.end)/2));
 const cameraPose = createCameraPose(player);
 const keys = new Set();
 let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
@@ -68,7 +72,7 @@ try { updateArtwork = await addArtwork(scene); }
 catch(error) { $('loading').textContent = 'Scene artwork could not load. Please refresh to retry.'; throw error; }
 
 // Keep the map north-up and crop a fixed local area around the player.
-$('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' '));
+$('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' ') + ' Z');
 function clearInput() {
   keys.clear(); jumpQueued = false;
 }
@@ -130,10 +134,8 @@ function frame(now) {
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
   updateCameraPose(cameraPose, player, delta);
-  const edgeMargin=viewHeight*aspect/2-1.2;
-  const routePosition=player.progress*WORLD.totalLength;
-  const edgeFraming=Math.max(0,edgeMargin-routePosition)-Math.max(0,edgeMargin-(WORLD.totalLength-routePosition));
-  camera.position.set(cameraPose.x+Math.cos(cameraPose.angle)*edgeFraming,cameraPose.y+Math.sin(cameraPose.angle)*edgeFraming,100);
+  const routePosition = player.progress * WORLD.totalLength;
+  camera.position.set(cameraPose.x, cameraPose.y, 100);
   camera.rotation.z = cameraPose.angle;
   camera.left = -viewHeight * aspect / 2; camera.right = viewHeight * aspect / 2;
   camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2;
@@ -144,10 +146,11 @@ function frame(now) {
   arrow.visible = !player.grounded;
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
-  updateArtwork(player.progress,viewHeight*aspect,viewHeight,edgeFraming);
+  goal.visible = goalCore.visible = player.lapProgress > .85;
+  updateArtwork(player.progress, viewHeight * aspect, viewHeight);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
-  const percent = finished ? 100 : Math.floor(player.progress * 100);
+  const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
   $('progress').innerHTML = `${String(percent).padStart(2, '0')}<span>%</span>`;
   $('progress-fill').style.width = `${percent}%`;
   if (debug) canvas.dataset.diagnostics = JSON.stringify({
@@ -157,7 +160,7 @@ function frame(now) {
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
     fullscreen: Boolean(document.fullscreenElement),
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
-    transition:routePosition>TRANSITION.start&&routePosition<TRANSITION.end,
+    transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

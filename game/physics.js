@@ -1,6 +1,6 @@
-import { WORLD, nearestPath } from './world.js?v=20261120f';
-import { COLLIDERS, SPAWN, SCENE_LENGTH } from './scenes.js?v=20261120f';
-export { WORLD, samplePath } from './world.js?v=20261120f';
+import { WORLD, nearestPath } from './world.js?v=20261123b';
+import { COLLIDERS, SPAWN, GOAL, SCENE_LENGTH } from './scenes.js?v=20261123b';
+export { WORLD, samplePath } from './world.js?v=20261123b';
 
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
 // The original controller was tuned for drawings 69.5820932 world units wide.
@@ -8,6 +8,7 @@ const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
 const movementScale=Math.sqrt(SCENE_LENGTH/69.58209322849558);
 export const PHYSICS={speed:10*movementScale,acceleration:48*movementScale,
   airAcceleration:20*movementScale,gravity:30,jumpSpeed:13.4*movementScale,fixedDt:1/120};
+export const goalLapProgress=(GOAL.s-SPAWN.s)/WORLD.totalLength;
 
 export function nearestSurface(x,y) {
   let bestSurface=Infinity,bestDistance=0,best,bestT=0,qx=0,qy=0;
@@ -41,7 +42,8 @@ export function resetPlayer(player) {
   const ground=nearestSurface(SPAWN.x,SPAWN.y);
   Object.assign(player,{x:SPAWN.x,y:SPAWN.y,
     vx:0,vy:0,nx:SPAWN.nx,ny:SPAWN.ny,tx:-SPAWN.ny,ty:SPAWN.nx,
-    grounded:true,groundId:ground.platformId,airJumpUsed:false,progress:SPAWN.progress,won:false,jumps:0,elapsed:0});
+    grounded:true,groundId:ground.platformId,airJumpUsed:false,progress:SPAWN.progress,
+    lapProgress:0,won:false,jumps:0,elapsed:0});
 }
 
 export function stepPlayer(player,input,dt) {
@@ -53,9 +55,13 @@ export function stepPlayer(player,input,dt) {
   const nx=local.nx,ny=local.ny;
   const wasGrounded=player.grounded && ground.surfaceDistance<WORLD.radius+.12 && ground.nx*nx+ground.ny*ny>.5;
   const previousPlatform=ground.platformId;
-  // The nearest spiral region defines up. Floating platforms still collide on
+  // The circle's radial direction defines up. Floating platforms still collide on
   // both faces, but their undersides cannot reverse gravity or reset a jump.
-  const tx=-ny,ty=nx;
+  // While supported, follow the real ramp instead of cancelling its vertical
+  // velocity every tick. Takeoff and flight still use the radial up direction.
+  const supportMotion=wasGrounded && !input.jump;
+  const motionNx=supportMotion?ground.nx:nx,motionNy=supportMotion?ground.ny:ny;
+  const tx=-motionNy,ty=motionNx;
   const move=clamp(input.move||0,-1,1);
   const tangential=player.vx*tx+player.vy*ty;
   const desired=-move*PHYSICS.speed;
@@ -70,8 +76,8 @@ export function stepPlayer(player,input,dt) {
     player.jumps++;
   }
   normalSpeed-=PHYSICS.gravity*dt;
-  player.vx=tx*speed+nx*normalSpeed;
-  player.vy=ty*speed+ny*normalSpeed;
+  player.vx=tx*speed+motionNx*normalSpeed;
+  player.vy=ty*speed+motionNy*normalSpeed;
   player.x+=player.vx*dt;
   player.y+=player.vy*dt;
   player.grounded=false;
@@ -94,7 +100,12 @@ export function stepPlayer(player,input,dt) {
   const current=nearestPath(player.x,player.y);
   player.nx=current.nx;player.ny=current.ny;
   player.tx=-current.ny;player.ty=current.nx;
+  // Signed unwrapped travel keeps the HUD and victory honest across the 1→0 seam.
+  let routeDelta=current.progress-player.progress;
+  if(routeDelta>.5) routeDelta-=1;
+  if(routeDelta<-.5) routeDelta+=1;
+  player.lapProgress+=routeDelta;
   player.progress=current.progress;
   player.elapsed+=dt;
-  if(player.grounded && current.progress>1-1.5/WORLD.totalLength) player.won=true;
+  if(player.grounded && player.lapProgress>=goalLapProgress) player.won=true;
 }
