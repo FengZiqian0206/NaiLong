@@ -1,9 +1,12 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, stepPlayer, goalLapProgress } from './physics.js?v=20261123c';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, goalLapProgress } from './physics.js?v=20261123c';
 import { createCameraPose, updateCameraPose } from './camera.js?v=20261123c';
-import { setupFullscreen } from './fullscreen.js';
+import { setupFullscreen } from './fullscreen.js?v=20261124';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
 import { addArtwork } from './artwork.js?v=20261123d';
+import { createCharacter } from './character.js?v=20261124c';
+import { createCharacterActions } from './character-actions.js?v=20261124c';
+import { createFeedback } from './feedback.js?v=20261124c';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -34,7 +37,7 @@ if (debug) {
 let viewHeight = Math.max(28, 40 * window.innerHeight / window.innerWidth);
 const cameraPose = createCameraPose(player, viewHeight);
 const keys = new Set();
-let jumpQueued = false, paused = false, started = false, wideView = false, finished = false;
+let paused = false, started = false, wideView = false, finished = false;
 let last = performance.now(), accumulator = 0;
 
 function material(color, opacity = 1) {
@@ -46,12 +49,6 @@ function disk(radius, color, x, y, z, parent = scene) {
   parent.add(mesh);
   return mesh;
 }
-const hero = new THREE.Group();
-scene.add(hero);
-disk(WORLD.radius + .075, '#f4f2e9', 0, 0, .9, hero);
-disk(WORLD.radius, '#d76545', 0, 0, 1, hero);
-disk(.055, '#f4f2e9', -.18, .2, 1.1, hero);
-disk(.055, '#f4f2e9', .18, .2, 1.1, hero);
 const goalPoint = GOAL;
 const goal = new THREE.Mesh(new THREE.RingGeometry(.85, .94, 48), material('#f3d790'));
 goal.position.set(goalPoint.x, goalPoint.y, 2);
@@ -67,38 +64,57 @@ const arrowGeometry = new THREE.BufferGeometry().setFromPoints([
 ]);
 arrow.add(new THREE.LineSegments(arrowGeometry, new THREE.LineBasicMaterial({ color: '#d76545' })));
 scene.add(arrow);
-let updateArtwork;
-try { updateArtwork = await addArtwork(scene); }
+let updateArtwork, character;
+try { [updateArtwork, character] = await Promise.all([addArtwork(scene), createCharacter(scene, WORLD.radius)]); }
 catch(error) { $('loading').textContent = 'Scene artwork could not load. Please refresh to retry.'; throw error; }
+const hero = character.object;
+const feedback = createFeedback(scene, WORLD.radius);
+const actions = createCharacterActions(player, character, feedback);
+const glowPalette = ['#ffc184', '#a5e8ff', '#e7a2ff', '#ff875c', '#a9e3ce', '#bbcaff']
+  .map(hex => new THREE.Color(hex));
+const glowIntensity = [.92, .78, 1.13, 1.02, .84, .86];
+const glowColor = new THREE.Color();
 
 // Keep the map north-up and crop a fixed local area around the player.
 $('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' ') + ' Z');
 function clearInput() {
-  keys.clear(); jumpQueued = false;
+  keys.clear();
+  actions.cancelJump();
 }
 function restart() {
   resetPlayer(player); clearInput();
+  actions.reset();
   Object.assign(cameraPose, createCameraPose(player, viewHeight));
   accumulator = 0; paused = false; finished = false; started = false;
   canvas.focus({ preventScroll: true });
 }
+const playKeys = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE'];
 window.addEventListener('keydown', (event) => {
+  // Resume audio before fullscreen can consume the same input gesture.
+  if (event.isTrusted && !event.repeat && playKeys.includes(event.code)) void feedback.unlock();
+}, { capture: true });
+canvas.addEventListener('pointerdown', () => { void feedback.unlock(); });
+window.addEventListener('keydown', (event) => {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.code === 'Escape' || event.code === 'KeyF') return;
   if (event.target.closest?.('button') && ['Space', 'Enter'].includes(event.code)) return;
-  if (['Space', 'ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
+  if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
   if (event.code === 'KeyR') return restart();
   if (event.code === 'KeyV') { wideView = !wideView; return; }
   if (paused || finished) return;
-  if (['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) started = true;
-  keys.add(event.code);
-  if (event.code === 'Space') jumpQueued = true;
+  if (!playKeys.includes(event.code)) return;
+  started = true;
+  if (event.code === 'KeyE') actions.interact();
+  else if (event.code === 'Space') actions.requestJump();
+  else keys.add(event.code);
 });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
-window.addEventListener('blur', () => { clearInput(); paused = true; });
+window.addEventListener('blur', () => { clearInput(); feedback.reset(); paused = true; });
 window.addEventListener('focus', () => { paused = false; last = performance.now(); accumulator = 0; });
 document.addEventListener('visibilitychange', () => {
   clearInput(); paused = document.hidden;
+  if (paused) feedback.reset();
   last = performance.now(); accumulator = 0;
 });
 canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
@@ -116,13 +132,21 @@ setupFullscreen($('game'), $('fullscreen'));
 
 function frame(now) {
   const delta = Math.min((now - last) / 1000, .05); last = now;
+  const lightPosition = player.progress * WORLD.totalLength;
+  const lightScene = sceneAt(lightPosition), lightTransition = transitionAt(lightPosition);
+  const nextLight = (lightScene + 1) % glowPalette.length;
+  const blend = lightTransition
+    ? THREE.MathUtils.smoothstep(lightPosition, lightTransition.start, lightTransition.end) : 0;
+  const glowStrength = THREE.MathUtils.lerp(glowIntensity[lightScene], glowIntensity[nextLight], blend);
+  glowColor.copy(glowPalette[lightScene]).lerp(glowPalette[nextLight], blend);
+  feedback.setGlowColor(glowColor);
   if (!paused && !finished && started) {
     accumulator += delta;
     let move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     move = Math.sign(move);
     while (accumulator >= PHYSICS.fixedDt) {
-      stepPlayer(player, { move, jump: jumpQueued }, PHYSICS.fixedDt);
-      jumpQueued = false; accumulator -= PHYSICS.fixedDt;
+      actions.step(move, PHYSICS.fixedDt);
+      accumulator -= PHYSICS.fixedDt;
       if (player.won) {
         finished = true; clearInput();
         break;
@@ -142,6 +166,16 @@ function frame(now) {
   camera.updateProjectionMatrix();
   hero.position.set(player.x, player.y, 0);
   hero.rotation.z = Math.atan2(player.ny, player.nx) - Math.PI / 2;
+  if (!paused) {
+    const tangentSpeed = player.vx * player.ny - player.vy * player.nx;
+    character.update(delta, {
+      direction: Math.abs(tangentSpeed) > .3 ? Math.sign(tangentSpeed) : 0,
+      grounded: player.grounded,
+      verticalSpeed: player.vx * player.nx + player.vy * player.ny,
+      glowColor, glowStrength,
+    });
+    feedback.update(delta, { player, idle: character.state === 'idle' && player.grounded });
+  }
   arrow.position.copy(hero.position); arrow.rotation.z = hero.rotation.z;
   arrow.visible = !player.grounded;
   const pulse = 1 + Math.sin(now * .002) * .12;
@@ -163,6 +197,7 @@ function frame(now) {
     fullscreen: Boolean(document.fullscreenElement),
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
+    character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

@@ -51,7 +51,7 @@ export function setupFullscreen(root, button) {
       return;
     }
     if (autoEntryArmed && !event.target.closest?.('button') &&
-      ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyV', 'KeyR'].includes(event.code)) void enter();
+      ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE', 'KeyV', 'KeyR'].includes(event.code)) void enter();
   });
   button.addEventListener('click', (event) => { event.stopPropagation(); void toggle(); });
   root.addEventListener('click', (event) => {

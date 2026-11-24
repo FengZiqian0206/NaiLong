@@ -11,15 +11,15 @@
 </head>
 <body>
   <main id="game" aria-label="Ring platformer">
-    <canvas id="world" aria-label="Use A and D to move. Press Space to jump, then press again in the air to double jump." tabindex="0"></canvas>
+    <canvas id="world" aria-label="Use A and D to move, Space to jump and double jump, and E to interact." tabindex="0"></canvas>
     <section class="objective" aria-label="Exploration progress">
       <div><span>Around the ring</span><strong id="progress">00<span>%</span></strong></div>
       <div class="meter"><i id="progress-fill"></i></div>
     </section>
     <aside class="map" aria-label="Local world map"><svg id="minimap" viewBox="-42 -25.2 84 50.4" role="img" aria-label="Nearby ground centered on the player"><path id="map-path"></path><circle id="map-player" r="1.4"></circle></svg><span>WORLD MAP</span></aside>
-    <footer><div class="instructions"><span><kbd>A</kbd><kbd>D</kbd> Move</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>V</kbd> Zoom</span><span><kbd>R</kbd> Restart</span><button id="fullscreen" type="button" aria-label="Enter fullscreen" aria-pressed="false" title="Press Esc to exit. Click or press F to enter fullscreen."><kbd>ESC / F</kbd><span data-fullscreen-label>Fullscreen</span></button></div></footer>
+    <footer><div class="instructions"><span><kbd>A</kbd><kbd>D</kbd> Move</span><span><kbd>SPACE</kbd> Jump</span><span><kbd>E</kbd> Interact</span><span><kbd>V</kbd> Zoom</span><span><kbd>R</kbd> Restart</span><button id="fullscreen" type="button" aria-label="Enter fullscreen" aria-pressed="false" title="Press Esc to exit. Click or press F to enter fullscreen."><kbd>ESC / F</kbd><span data-fullscreen-label>Fullscreen</span></button></div></footer>
     <div id="loading" class="loading" role="status">Loading the ring…</div>
   </main>
-  <script type="module" src="./game/main.js?v=20261123d"></script>
+  <script type="module" src="./game/main.js?v=20261124c"></script>
 </body>
 </html>

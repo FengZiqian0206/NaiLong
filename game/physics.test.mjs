@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261123c';
 import {nearestPath} from './world.js?v=20261123b';
 import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint} from './scenes.js?v=20261123b';
+import {createCharacterActions} from './character-actions.js';
 
 const dt=PHYSICS.fixedDt;
 assert.equal(WORLD.radius,.62,'art replacement preserves character size');
@@ -51,6 +52,9 @@ assert.equal(PANELS[2].source.platforms.length,1,'scene three has one continuous
 assert.ok(PANELS.slice(4).every(p=>p.source.platforms.length===1));
 function tick(p,move=0,jump=false) {
   stepPlayer(p,{move,jump},dt);
+  checkContact(p);
+}
+function checkContact(p) {
   assert.ok(Number.isFinite(p.x+p.y+p.vx+p.vy),'finite simulation');
   const surface=nearestSurface(p.x,p.y);
   assert.ok(p.progress>=0 && p.progress<1,'render progress stays wrapped');
@@ -294,6 +298,10 @@ assert.ok(!p.won,'standing at the goal without travelling a lap cannot win');
 // and uses its extra airborne impulse near the apex. No position overrides.
 resetPlayer(p);
 const routeRespawnId=p.respawnId;
+const noOp=()=>{};
+const routeActions=createCharacterActions(p,{
+  anticipateJump:noOp,cancelAnticipation:noOp,jump:noOp,land:noOp,reset:noOp,
+},{emit:noOp,reset:noOp});
 let lastJump=-999,maxProgress=0,stalled=0,routeAirFrames=0;
 const visitedScenes=new Set();
 const bridgeContactFrames=Array(6).fill(0);
@@ -313,10 +321,14 @@ for(let frame=0;frame<routeLimit && !p.won;frame++) {
   });
   const jump=(p.grounded && danger && frame-lastJump>12) ||
     (!p.grounded && !p.airJumpUsed && p.vx*p.nx+p.vy*p.ny<2);
-  if(jump) lastJump=frame;
+  if(jump) {
+    lastJump=frame;
+    routeActions.requestJump();
+  }
   const move=!p.grounded && p.lapProgress>goalLapProgress-6/WORLD.totalLength?0:1;
   const priorLap=p.lapProgress;
-  tick(p,move,jump);
+  routeActions.step(move,dt);
+  checkContact(p);
   maxRouteStep=Math.max(maxRouteStep,Math.abs(p.lapProgress-priorLap)*WORLD.totalLength);
   assert.ok(maxRouteStep<1,'unwrapped lap progress has no jumps at the closing seam');
   if(p.grounded && p.groundId?.startsWith('transition:')) bridgeContactFrames[Number(p.groundId.split(':')[1])]++;
