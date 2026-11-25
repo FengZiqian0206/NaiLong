@@ -1,12 +1,14 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, PHYSICS, createPlayer, resetPlayer, goalLapProgress } from './physics.js?v=20261123c';
 import { createCameraPose, updateCameraPose } from './camera.js?v=20261123c';
-import { setupFullscreen } from './fullscreen.js?v=20261124';
+import { setupFullscreen } from './fullscreen.js?v=20261125';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
-import { addArtwork } from './artwork.js?v=20261123d';
+import { addArtwork } from './artwork.js?v=20261125';
 import { createCharacter } from './character.js?v=20261124c';
 import { createCharacterActions } from './character-actions.js?v=20261124c';
 import { createFeedback } from './feedback.js?v=20261124c';
+import { createProps, propPoint } from './props.js?v=20261125';
+import { createPropEditor } from './prop-editor.js?v=20261125';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -64,8 +66,12 @@ const arrowGeometry = new THREE.BufferGeometry().setFromPoints([
 ]);
 arrow.add(new THREE.LineSegments(arrowGeometry, new THREE.LineBasicMaterial({ color: '#d76545' })));
 scene.add(arrow);
-let updateArtwork, character;
-try { [updateArtwork, character] = await Promise.all([addArtwork(scene), createCharacter(scene, WORLD.radius)]); }
+let updateArtwork, character, props;
+try {
+  [updateArtwork, character, props] = await Promise.all([
+    addArtwork(scene), createCharacter(scene, WORLD.radius), createProps(scene),
+  ]);
+}
 catch(error) { $('loading').textContent = 'Scene artwork could not load. Please refresh to retry.'; throw error; }
 const hero = character.object;
 const feedback = createFeedback(scene, WORLD.radius);
@@ -81,6 +87,22 @@ function clearInput() {
   keys.clear();
   actions.cancelJump();
 }
+const pointerPoint = new THREE.Vector3();
+const editor = createPropEditor({
+  root: $('game'), canvas, clearInput,
+  getPoint(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    pointerPoint.set((clientX - rect.left) / rect.width * 2 - 1, 1 - (clientY - rect.top) / rect.height * 2, 0);
+    pointerPoint.unproject(camera);
+    return propPoint(pointerPoint.x, pointerPoint.y);
+  },
+  addProp: props.add, pickProp: props.pick, editProp: props.edit, removeProp: props.remove, selectProp: props.select,
+  async restoreProps(definitions) {
+    const results = await Promise.allSettled(definitions.map(props.add));
+    return results.filter(result => result.status === 'fulfilled').map(result => result.value);
+  },
+});
 function restart() {
   resetPlayer(player); clearInput();
   actions.reset();
@@ -89,14 +111,16 @@ function restart() {
   canvas.focus({ preventScroll: true });
 }
 const playKeys = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE'];
+const isEditingField = event => event.target.closest?.('input, select, textarea, [contenteditable]');
 window.addEventListener('keydown', (event) => {
   // Resume audio before fullscreen can consume the same input gesture.
-  if (event.isTrusted && !event.repeat && playKeys.includes(event.code)) void feedback.unlock();
+  if (event.isTrusted && !event.repeat && !isEditingField(event) && playKeys.includes(event.code)) void feedback.unlock();
 }, { capture: true });
 canvas.addEventListener('pointerdown', () => { void feedback.unlock(); });
 window.addEventListener('keydown', (event) => {
   if (event.altKey || event.ctrlKey || event.metaKey) return;
-  if (event.code === 'Escape' || event.code === 'KeyF') return;
+  if (event.code === 'KeyP' && !event.repeat) { event.preventDefault(); editor.toggle(); return; }
+  if (event.code === 'Escape' || event.code === 'KeyF' || isEditingField(event)) return;
   if (event.target.closest?.('button') && ['Space', 'Enter'].includes(event.code)) return;
   if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
@@ -105,7 +129,11 @@ window.addEventListener('keydown', (event) => {
   if (paused || finished) return;
   if (!playKeys.includes(event.code)) return;
   started = true;
-  if (event.code === 'KeyE') actions.interact();
+  if (event.code === 'KeyE') {
+    if (editor.active) return;
+    if (!player.falling) props.interact(player);
+    actions.interact();
+  }
   else if (event.code === 'Space') actions.requestJump();
   else keys.add(event.code);
 });
@@ -124,11 +152,11 @@ function resize() {
 window.addEventListener('resize', resize);
 document.addEventListener('fullscreenchange', () => {
   resize();
-  canvas.focus({ preventScroll: true });
+  if (!editor.active) canvas.focus({ preventScroll: true });
 });
 resize();
 $('loading').hidden = true;
-setupFullscreen($('game'), $('fullscreen'));
+setupFullscreen($('game'), $('fullscreen'), () => !editor.active);
 
 function frame(now) {
   const delta = Math.min((now - last) / 1000, .05); last = now;
@@ -182,6 +210,7 @@ function frame(now) {
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
   updateArtwork(cameraPose.progress, viewHeight * aspect, viewHeight);
+  props.update(paused ? 0 : delta, player, cameraPose.progress, viewHeight * aspect, viewHeight, editor.active || finished);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
@@ -198,6 +227,7 @@ function frame(now) {
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
     character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
+    activeProp: props.activeId, animatingProp: props.animatingId,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

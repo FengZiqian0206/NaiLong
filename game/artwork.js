@@ -33,7 +33,7 @@ export async function addArtwork(scene) {
     Promise.all(PANELS.map(async panel=>{
       if(!panel.image) return null;
       const [art,mask]=await Promise.all([
-        loadTexture(panel.image),
+        loadTexture(panel.index===0?'home/level1-clean.png?v=20261125':panel.image),
         maskedScenes.has(panel.index)?loadTexture('level'+(panel.index+1)+'_mask.jpg',false):null,
       ]);
       return {art,mask};

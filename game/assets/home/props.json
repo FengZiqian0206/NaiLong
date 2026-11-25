@@ -1,0 +1,58 @@
+[
+  {
+    "id": "backpack",
+    "image": "backpack.png",
+    "x": 458,
+    "y": 386,
+    "width": 64,
+    "height": 87
+  },
+  {
+    "id": "family-photo",
+    "image": "family-photo.png",
+    "x": 685,
+    "y": 385,
+    "width": 102,
+    "height": 74
+  },
+  {
+    "id": "key",
+    "image": "key.png",
+    "x": 1191,
+    "y": 255,
+    "width": 76,
+    "height": 31
+  },
+  {
+    "id": "storage-door",
+    "image": "storage-door.png",
+    "x": 1023,
+    "y": 485,
+    "width": 104,
+    "height": 74
+  },
+  {
+    "id": "dog",
+    "image": "dog.png",
+    "x": 1380,
+    "y": 437,
+    "width": 84,
+    "height": 74
+  },
+  {
+    "id": "bell",
+    "image": "bell.png",
+    "x": 1732,
+    "y": 355,
+    "width": 46,
+    "height": 69
+  },
+  {
+    "id": "pink-flowers",
+    "image": "pink-flowers.png",
+    "x": 1850,
+    "y": 379,
+    "width": 73,
+    "height": 73
+  }
+]

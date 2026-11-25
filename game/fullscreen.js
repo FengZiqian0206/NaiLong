@@ -1,4 +1,4 @@
-export function setupFullscreen(root, button) {
+export function setupFullscreen(root, button, canAutoEnter = () => true) {
   const doc = root.ownerDocument, win = doc.defaultView;
   const label = button.querySelector('[data-fullscreen-label]');
   const supported = doc.fullscreenEnabled !== false &&
@@ -40,7 +40,8 @@ export function setupFullscreen(root, button) {
     update();
   });
   doc.addEventListener('keydown', (event) => {
-    if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.repeat || event.ctrlKey || event.metaKey || event.altKey ||
+      event.target.closest?.('input, select, textarea, [contenteditable]')) return;
     if (event.code === 'KeyF') { event.preventDefault(); void toggle(); return; }
     if (event.code === 'Escape') {
       autoEntryArmed = false;
@@ -50,12 +51,12 @@ export function setupFullscreen(root, button) {
       void enter();
       return;
     }
-    if (autoEntryArmed && !event.target.closest?.('button') &&
+    if (autoEntryArmed && canAutoEnter() && !event.target.closest?.('button') &&
       ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE', 'KeyV', 'KeyR'].includes(event.code)) void enter();
   });
   button.addEventListener('click', (event) => { event.stopPropagation(); void toggle(); });
   root.addEventListener('click', (event) => {
-    if (autoEntryArmed && !event.target.closest?.('button')) void enter();
+    if (autoEntryArmed && canAutoEnter() && !event.target.closest?.('button')) void enter();
   });
   update();
   if (doc.fullscreenElement) autoEntryArmed = false;

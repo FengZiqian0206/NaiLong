@@ -1,0 +1,120 @@
+.prop-editor-canvas {
+  cursor: crosshair;
+}
+
+.prop-editor {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: max(28px, env(safe-area-inset-top));
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: min(286px, calc(100% - 32px));
+  max-height: calc(100dvh - 56px);
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #fff9e9;
+  border-radius: 5px;
+  background: #f4f2e9f4;
+  color: #293e3b;
+  box-shadow: 0 4px 18px #14262229;
+  font-size: 12px;
+}
+
+.prop-editor header,
+.prop-editor-actions,
+.prop-editor-properties {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prop-editor h2 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.prop-editor button,
+.prop-editor select {
+  min-height: 34px;
+  border: 1px solid #293e3b40;
+  border-radius: 3px;
+  background: #fffdf6;
+  color: inherit;
+  font: inherit;
+  padding-inline: 9px;
+}
+
+.prop-editor button {
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.prop-editor button:not(:disabled):hover {
+  background: #faf1db;
+}
+
+.prop-editor button[data-action="file"] {
+  border-color: #9b492f;
+  background: #a34e34;
+  color: #fffdf6;
+}
+
+.prop-editor button[data-action="file"]:not(:disabled):hover {
+  background: #893e29;
+}
+
+.prop-editor :is(button, select, input):focus-visible {
+  outline: 2px solid #a34e34;
+  outline-offset: 2px;
+}
+
+.prop-editor :disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.prop-editor label {
+  display: grid;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.prop-editor select {
+  width: 100%;
+}
+
+.prop-editor-properties label {
+  grid-template-columns: 1fr auto;
+}
+
+.prop-editor-properties input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: #a34e34;
+}
+
+.prop-editor-properties output {
+  font: 11px ui-monospace, Consolas, monospace;
+}
+
+.prop-editor p {
+  min-height: 2.8em;
+  margin: 0;
+  line-height: 1.4;
+  color: #52665c;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) and (min-height: 480px) {
+  .prop-editor {
+    inset-block-start: max(122px, calc(env(safe-area-inset-top) + 106px));
+    max-height: calc(100dvh - 152px);
+  }
+}
