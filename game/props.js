@@ -5,7 +5,9 @@ import { PANELS } from './scenes.js?v=20261123b';
 const { ringRadius, totalLength } = WORLD;
 const reach = 3.25;
 const bounceDuration = .43;
+const fadeDuration = .26;
 const padding = .36;
+const behaviors = new Set(['bounce', 'disappear', 'image']);
 const wrap = s => THREE.MathUtils.euclideanModulo(s, totalLength);
 const routeDelta = (a, b) => wrap(a - b + totalLength / 2) - totalLength / 2;
 
@@ -23,7 +25,7 @@ function propDistance(point, prop) {
 function nearbyProp(props, point) {
   let nearest = null, best = Infinity;
   for (const prop of props) {
-    if (!prop.interactive) continue;
+    if (!prop.interactive || prop.fadeTime !== null) continue;
     const distance = propDistance(point, prop);
     if (distance > reach) continue;
     const centerDistance = Math.hypot(routeDelta(point.s, prop.s), point.h - prop.h);
@@ -55,7 +57,7 @@ const vertexShader = `
 
 const fragmentShader = `
   uniform sampler2D art;
-  uniform float highlight;
+  uniform float highlight, opacity;
   uniform vec3 outlineColor;
   varying vec2 spriteUV;
   varying vec2 worldSize;
@@ -83,7 +85,7 @@ const fragmentShader = `
     float rim = halo * (1. - color.a);
     float alpha = color.a + rim;
     if (alpha < .005) discard;
-    gl_FragColor = vec4((paint * color.a + outlineColor * rim) / alpha, alpha);
+    gl_FragColor = vec4((paint * color.a + outlineColor * rim) / alpha, alpha * opacity);
     #include <colorspace_fragment>
   }`;
 
@@ -131,16 +133,25 @@ export async function createProps(scene) {
   let active = null, selected = null;
 
   function placement(prop) {
-    const { id, name, blob, s, h, width, height, interactive } = prop;
-    return { id, name, blob, s, h, width, height, interactive };
+    const { id, name, blob, s, h, width, height, interactive, behavior, popupImage, popupName } = prop;
+    return { id, name, blob, s, h, width, height, interactive, behavior, popupImage, popupName };
   }
 
-  function change(prop, { s, h, width, height, interactive }) {
+  function change(prop, { s, h, width, height, interactive, behavior, popupImage, popupName }) {
     if (Number.isFinite(s)) prop.s = wrap(s);
     if (Number.isFinite(h)) prop.h = Math.max(-ringRadius + 1, h);
     if (Number.isFinite(width) && width >= .35 && width <= 18) prop.width = width;
     if (Number.isFinite(height) && height >= .35 && height <= 18) prop.height = height;
-    if (typeof interactive === 'boolean') prop.interactive = interactive;
+    if (typeof interactive === 'boolean' && prop.interactive !== interactive) {
+      prop.interactive = interactive;
+      prop.fadeTime = null;
+    }
+    if (behaviors.has(behavior) && prop.behavior !== behavior) {
+      prop.behavior = behavior;
+      prop.fadeTime = null;
+    }
+    if (popupImage instanceof Blob || popupImage === null) prop.popupImage = popupImage;
+    if (typeof popupName === 'string') prop.popupName = popupName;
     prop.mesh.material.uniforms.bounds.value.set(prop.s, prop.h, prop.width, prop.height);
     return placement(prop);
   }
@@ -149,11 +160,12 @@ export async function createProps(scene) {
     texture.premultiplyAlpha = true;
     const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       uniforms: { art: { value: texture }, bounds: { value: new THREE.Vector4() }, pulse: { value: 1 },
-        highlight: { value: 0 }, outlineColor: { value: warm } }, vertexShader, fragmentShader });
+        highlight: { value: 0 }, opacity: { value: 1 }, outlineColor: { value: warm } }, vertexShader, fragmentShader });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     mesh.renderOrder = definition.blob ? .6 : .5;
-    const prop = { ...definition, interactive: definition.interactive !== false, mesh, elapsed: bounceDuration };
+    const prop = { ...definition, interactive: definition.interactive !== false,
+      behavior: behaviors.has(definition.behavior) ? definition.behavior : 'bounce', mesh, elapsed: bounceDuration, fadeTime: null };
     const placed = change(prop, definition);
     props.set(prop.id, prop);
     scene.add(mesh);
@@ -178,18 +190,34 @@ export async function createProps(scene) {
   return {
     get activeId() { return active?.id ?? null; },
     get animatingId() { return [...props.values()].find(prop => prop.elapsed < bounceDuration)?.id ?? null; },
+    get collectedIds() { return [...props.values()].filter(prop => prop.fadeTime !== null).map(prop => prop.id); },
+    reset() {
+      active = null;
+      for (const prop of props.values()) {
+        prop.fadeTime = null;
+        prop.elapsed = bounceDuration;
+      }
+    },
     interact(player) {
       const target = nearbyProp(props.values(), propPoint(player.x, player.y));
-      if (target && target.elapsed >= bounceDuration) target.elapsed = 0;
+      if (!target) return null;
+      if (target.behavior === 'disappear') target.fadeTime = 0;
+      if (target.behavior === 'image' && target.popupImage instanceof Blob) return target.popupImage;
+      if (target.behavior === 'bounce' && target.elapsed >= bounceDuration) target.elapsed = 0;
+      return null;
     },
-    update(dt, player, cameraProgress, viewWidth, viewHeight, editing) {
-      active = !editing && !player.falling ? nearbyProp(props.values(), propPoint(player.x, player.y)) : null;
+    update(dt, player, cameraProgress, viewWidth, viewHeight, editing, interactionEnabled = true) {
+      active = interactionEnabled && !editing && !player.falling ? nearbyProp(props.values(), propPoint(player.x, player.y)) : null;
       const cameraS = cameraProgress * totalLength;
       for (const prop of props.values()) {
         prop.elapsed = Math.min(bounceDuration, prop.elapsed + dt);
-        prop.mesh.visible = Math.abs(routeDelta(prop.s, cameraS)) < Math.max(viewWidth, viewHeight) * .75 + 10 + prop.width;
+        if (prop.fadeTime !== null) prop.fadeTime = Math.min(fadeDuration, prop.fadeTime + dt);
+        const fading = !editing && prop.fadeTime !== null;
+        const fade = fading ? THREE.MathUtils.smoothstep(prop.fadeTime, 0, fadeDuration) : 0;
+        prop.mesh.visible = fade < 1 && Math.abs(routeDelta(prop.s, cameraS)) < Math.max(viewWidth, viewHeight) * .75 + 10 + prop.width;
         const uniforms = prop.mesh.material.uniforms;
-        uniforms.pulse.value = pulseScale(prop.elapsed);
+        uniforms.pulse.value = fading ? 1 - .15 * fade : pulseScale(prop.elapsed);
+        uniforms.opacity.value = 1 - fade;
         uniforms.highlight.value = THREE.MathUtils.damp(uniforms.highlight.value,
           prop === active || (editing && selected === prop.id) ? 1 : 0, 18, dt);
         uniforms.outlineColor.value = editing ? editColor : warm;

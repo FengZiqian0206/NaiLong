@@ -1,0 +1,22 @@
+.prop-popup {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-block: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-bottom));
+  padding-inline: max(20px, env(safe-area-inset-left)) max(20px, env(safe-area-inset-right));
+  background: #171120cb;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.prop-popup > img {
+  display: block;
+  max-width: min(100%, 920px);
+  max-height: 82dvh;
+  object-fit: contain;
+  filter: drop-shadow(0 16px 36px #0a061280);
+  user-select: none;
+}

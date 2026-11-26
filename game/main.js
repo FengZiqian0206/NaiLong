@@ -7,8 +7,10 @@ import { addArtwork } from './artwork.js?v=20261126';
 import { createCharacter } from './character.js?v=20261126';
 import { createCharacterActions } from './character-actions.js?v=20261126';
 import { createFeedback } from './feedback.js?v=20261124c';
-import { createProps, propPoint } from './props.js?v=20261126';
-import { createPropEditor } from './prop-editor.js?v=20261126';
+import { createProps, propPoint } from './props.js?v=20261126b';
+import { createPropEditor } from './prop-editor.js?v=20261126b';
+import { createPropPopup } from './prop-popup.js?v=20261126b';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261126b';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -88,8 +90,9 @@ function clearInput() {
   actions.cancelJump();
 }
 const pointerPoint = new THREE.Vector3();
+const popup = createPropPopup($('game'), { clearInput });
 const editor = createPropEditor({
-  root: $('game'), canvas, clearInput,
+  root: $('game'), canvas, clearInput, loadSharedProps, publishSharedProps,
   getPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
@@ -106,20 +109,22 @@ const editor = createPropEditor({
 function restart() {
   resetPlayer(player); clearInput();
   actions.reset();
+  props.reset();
   Object.assign(cameraPose, createCameraPose(player, viewHeight));
   accumulator = 0; paused = false; finished = false; started = false;
   canvas.focus({ preventScroll: true });
 }
 const playKeys = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE'];
 const isEditingField = event => event.target.closest?.('input, select, textarea, [contenteditable]');
+const isTyping = event => event.target.closest?.('input:not([type]), input[type=text], input[type=password], textarea, [contenteditable]');
 window.addEventListener('keydown', (event) => {
   // Resume audio before fullscreen can consume the same input gesture.
-  if (event.isTrusted && !event.repeat && !isEditingField(event) && playKeys.includes(event.code)) void feedback.unlock();
+  if (!popup.active && event.isTrusted && !event.repeat && !isEditingField(event) && playKeys.includes(event.code)) void feedback.unlock();
 }, { capture: true });
 canvas.addEventListener('pointerdown', () => { void feedback.unlock(); });
 window.addEventListener('keydown', (event) => {
-  if (event.altKey || event.ctrlKey || event.metaKey) return;
-  if (event.code === 'KeyP' && !event.repeat) { event.preventDefault(); editor.toggle(); return; }
+  if (popup.active || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.code === 'KeyP' && !event.repeat && !isTyping(event)) { event.preventDefault(); editor.toggle(); return; }
   if (event.code === 'Escape' || event.code === 'KeyF' || isEditingField(event)) return;
   if (event.target.closest?.('button') && ['Space', 'Enter'].includes(event.code)) return;
   if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
@@ -131,8 +136,9 @@ window.addEventListener('keydown', (event) => {
   started = true;
   if (event.code === 'KeyE') {
     if (editor.active) return;
-    if (!player.falling) props.interact(player);
+    const image = player.falling ? null : props.interact(player);
     actions.interact();
+    if (image) void popup.show(image);
   }
   else if (event.code === 'Space') actions.requestJump();
   else keys.add(event.code);
@@ -152,11 +158,11 @@ function resize() {
 window.addEventListener('resize', resize);
 document.addEventListener('fullscreenchange', () => {
   resize();
-  if (!editor.active) canvas.focus({ preventScroll: true });
+  if (!editor.active && !popup.active) canvas.focus({ preventScroll: true });
 });
 resize();
 $('loading').hidden = true;
-setupFullscreen($('game'), $('fullscreen'), () => !editor.active);
+setupFullscreen($('game'), $('fullscreen'), () => !editor.active && !popup.active);
 
 function frame(now) {
   const delta = Math.min((now - last) / 1000, .05); last = now;
@@ -168,7 +174,7 @@ function frame(now) {
   const glowStrength = THREE.MathUtils.lerp(glowIntensity[lightScene], glowIntensity[nextLight], blend);
   glowColor.copy(glowPalette[lightScene]).lerp(glowPalette[nextLight], blend);
   feedback.setGlowColor(glowColor);
-  if (!paused && !finished && started) {
+  if (!paused && !finished && !popup.active && started) {
     accumulator += delta;
     let move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     move = Math.sign(move);
@@ -212,7 +218,7 @@ function frame(now) {
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
   updateArtwork(cameraPose.progress, viewWidth, viewHeight, framed.progress);
-  props.update(paused ? 0 : delta, player, framed.progress, viewWidth, viewHeight, editor.active || finished);
+  props.update(paused ? 0 : delta, player, framed.progress, viewWidth, viewHeight, editor.active, !finished && !popup.active);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
@@ -229,7 +235,7 @@ function frame(now) {
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
     character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
-    activeProp: props.activeId, animatingProp: props.animatingId,
+    activeProp: props.activeId, animatingProp: props.animatingId, collectedProps: props.collectedIds, imagePopup: popup.active,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

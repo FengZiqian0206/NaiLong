@@ -21,7 +21,9 @@ Three.js 二维侧视平台跳跃原型。规则圆环分为六个等长扇区�
 
 角色采用提供的待机、左右走、跳跃和交互图。角色本体为 90% 不透明度，身体色彩缓慢流动。柔光随场景换色，待机时散发少量光点。两次跳跃都先短暂蓄力压扁，起跳有光粒，落地有烟尘和触地声。走路时留下短暂的光尘与足迹，并按步伐播放脚步声。家中有七件可互动的物品，靠近时最近的物品会沿轮廓亮起。按 E 播放角色动作、提示音和物品的弹性反馈。
 
-按 P 打开隐藏的物品编辑面板。选择 PNG 后点击场景放置，可拖动，并独立调整 Width（宽度）和 Height（高度）。勾选 Interactive 时会启用靠近高亮和 E 键反馈，取消勾选可作为场景装饰。点击 Save locally 保存到当前浏览器，刷新后会自动恢复。再按 P 回到试玩。
+按 P 打开隐藏的物品编辑面板。选择 PNG 后点击场景放置，可拖动，并独立调整 Width（宽度）和 Height（高度）。勾选 Interactive 时会启用靠近高亮和 E 键反馈，取消勾选可作为场景装饰。交互反馈可选 Bounce（弹动）、Disappear（在本轮游戏中消失）或 Show image（显示另选的 PNG、JPEG 或 WebP 图片）。图片淡入并放大，任意键或点击都能让它淡出。再按 P 回到试玩。
+
+用 Save locally 保存当前浏览器的草稿。用 Save globally 将布局及其图片发布到公开试玩版，其他浏览器打开同一个游戏链接即可加载。发布时需要为 `FengZiqian0206/NaiLong` 单独授权 Contents 读写权限的 [GitHub fine-grained token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)。令牌只用于这次发布请求。如果有人先发布了更新，保存会提示刷新后再重试。
 
 场景 3 使用一条连续地面。场景 1、2、4 的可踩表面来自各自的黑色碰撞遮罩，场景 4 包括接通的斜坡和平台。连接道路按相邻场景的地面高度对齐。原始素材位于 `game/assets`，可用 `scripts/extract-levels.py` 重新生成碰撞数据。
 
