@@ -13,11 +13,34 @@ const registrations=[
   [{x:491.5,y:596,levelY:542,sx:1.110,sy:1.107},
    {x:1919.5,y:582.5,levelY:532,sx:1.096,sy:1.094}],
 ];
+const edgePaint=`
+  vec4 continuedPaint(sampler2D art,vec2 uv,float outdoor){
+    float outside=max(-uv.y,uv.y-1.);
+    vec4 paint=texture2D(art,uv);
+    if(outside>0.){
+      float inset=.09*(1.-exp(-outside/.09));
+      vec2 point=vec2(uv.x,uv.y>1.?1.-inset:inset);
+      vec2 blur=vec2(.075*smoothstep(.025,.28,outside),0.);
+      paint=(3.*texture2D(art,point)+2.*texture2D(art,point+blur)+
+        2.*texture2D(art,point-blur)+texture2D(art,point+2.*blur)+texture2D(art,point-2.*blur))/9.;
+      // Dissolve the reflected edge into the room/sky colors before the
+      // extended area becomes large enough to look like stretched paint.
+      vec3 ceiling=mix(vec3(.115,.105,.114),vec3(.12,.24,.235),outdoor);
+      vec3 foundation=mix(vec3(.031,.047,.056),vec3(.026,.047,.085),outdoor);
+      vec3 distant=uv.y>1.?ceiling:foundation;
+      paint.rgb=mix(paint.rgb,distant,smoothstep(.045,.34,outside));
+    }
+    return paint;
+  }`;
 const transitionPaint=`
   uniform sampler2D art;
+  uniform float overscan;
+  ${edgePaint}
   vec4 paint(vec2 uv){
-    vec4 color=texture2D(art,uv);
-    color.a*=smoothstep(0.,.07,uv.y)*(1.-smoothstep(.97,1.,uv.y));
+    uv.y=uv.y*(1.+2.*overscan)-overscan;
+    vec4 color=continuedPaint(art,uv,1.);
+    float band=smoothstep(0.,.07,uv.y)*(1.-smoothstep(.97,1.,uv.y));
+    color.a*=mix(band,1.,step(.001,overscan)*(1.-smoothstep(.73,.80,uv.x)));
     return color;
   }`;
 
@@ -94,10 +117,15 @@ export async function addArtwork(scene) {
     }
     const previous=TRANSITIONS[(index+PANELS.length-1)%PANELS.length];
     const next=TRANSITIONS[index];
-    meshStrip(start,end,()=>[(baseline-source.height)*pixelScale,baseline*pixelScale],{
+    const artHeight=source.height*pixelScale;
+    // An edge-framed view looks farther across the curved room than a centered
+    // view. Continue its ceiling and foundation outside the painted strip.
+    const above=index===0?62:0,below=index===0?36:0;
+    meshStrip(start,end,()=>[(baseline-source.height)*pixelScale-below,baseline*pixelScale+above],{
       art:{value:map.art},
       mask:{value:map.mask??map.art},
       hasMask:{value:Number(Boolean(map.mask))},
+      sourceBand:{value:new THREE.Vector2(1+(above+below)/artHeight,-below/artHeight)},
       fadeIn:{value:previous.image?edgeBlend/length:0},
       fadeDelay:{value:index===2?fairgroundLead/length:0},
       fadeOut:{value:next.image?edgeBlend/length:0},
@@ -105,8 +133,11 @@ export async function addArtwork(scene) {
     },`
       uniform sampler2D art,mask;
       uniform float hasMask,fadeIn,fadeDelay,fadeOut,floorUV;
+      uniform vec2 sourceBand;
+      ${edgePaint}
       vec4 paint(vec2 uv){
-        vec4 color=texture2D(art,uv);
+        uv.y=uv.y*sourceBand.x+sourceBand.y;
+        vec4 color=continuedPaint(art,uv,smoothstep(.46,.81,uv.x));
         float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+fadeIn,uv.x):1.)*
           (fadeOut>0.?smoothstep(0.,fadeOut,1.-uv.x):1.);
         float black=min(texture2D(mask,uv).r,
@@ -116,7 +147,9 @@ export async function addArtwork(scene) {
         float elevated=smoothstep(.019,.035,uv.y-floorUV);
         float keep=elevated*hasMask*(1.-smoothstep(.15,.7,black));
         color.a*=mix(edgeFade,1.,keep);
-        color.a*=smoothstep(0.,.03,uv.y)*(1.-smoothstep(.98,1.,uv.y));
+        float band=smoothstep(0.,.03,uv.y)*(1.-smoothstep(.98,1.,uv.y));
+        float overscan=step(1.001,sourceBand.x);
+        color.a*=mix(band,1.,overscan);
         return color;
       }`);
   }
@@ -137,6 +170,7 @@ export async function addArtwork(scene) {
     const leftRate=entry.sx/pixelScale,rightRate=exit.sx/pixelScale;
     const averageRate=(exit.x-entry.x)/length;
     const extra=index===1?fairgroundLead:0;
+    const overscan=index===0?1.65:0;
     meshStrip(start-edgeBlend,end+extra+edgeBlend,s=>{
       const t=THREE.MathUtils.clamp((s-start)/length,0,1);
       // Preserve the scale at each join and distribute the width adjustment
@@ -158,16 +192,17 @@ export async function addArtwork(scene) {
         roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-5,end));
       }
       const ceiling=top(s)+roadRow*verticalScale;
-      return [ceiling-height*verticalScale,ceiling,sourceX/width];
-    },{art:{value:bridges[index]}},transitionPaint,-2);
+      const artHeight=height*verticalScale;
+      return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width];
+    },{art:{value:bridges[index]},overscan:{value:overscan}},transitionPaint,-2);
   }
 
   const colors=['#9bb3a1','#83bce9','#302238','#0b2231','#c7cdc0','#c7cdc0'].map(color=>new THREE.Color(color));
-  return (progress,width,height)=>{
-    const s=progress*WORLD.totalLength;
+  return (progress,width,height,viewProgress=progress)=>{
+    const s=progress*WORLD.totalLength, viewS=viewProgress*WORLD.totalLength;
     const visibleRadius=Math.max(width*.65,height*.55)+10;
     for(const {mesh,center,length} of meshes) {
-      const delta=Math.abs(center-s);
+      const delta=Math.abs(center-viewS);
       mesh.visible=Math.min(delta,Math.abs(WORLD.totalLength-delta))<visibleRadius+length/2;
     }
     const index=sceneAt(s),transition=transitionAt(s);

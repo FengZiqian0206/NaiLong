@@ -1,5 +1,5 @@
-const MIN_WIDTH = 0.35;
-const MAX_WIDTH = 18;
+const MIN_SIZE = 0.35;
+const MAX_SIZE = 18;
 const DEFAULT_WIDTH = 2.8;
 const STORE = 'placed-props';
 
@@ -34,7 +34,7 @@ export function createPropEditor({
 }) {
   const stylesheet = document.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-editor.css?v=20261125a', import.meta.url);
+  stylesheet.href = new URL('./prop-editor.css?v=20261126', import.meta.url);
   document.head.append(stylesheet);
 
   const panel = document.createElement('section');
@@ -55,8 +55,19 @@ export function createPropEditor({
       <select name="prop" disabled></select>
     </label>
     <div class="prop-editor-properties">
-      <label>Width <output></output>
-        <input type="range" min="${MIN_WIDTH}" max="${MAX_WIDTH}" step="0.05" aria-label="Object width" disabled>
+      <div>
+        <label for="prop-width">Width</label> <output for="prop-width" aria-hidden="true"></output>
+        <input type="range" id="prop-width" min="${MIN_SIZE}" max="${MAX_SIZE}" step="0.05" aria-label="Object width" disabled>
+      </div>
+      <div>
+        <label for="prop-height">Height</label> <output for="prop-height" aria-hidden="true"></output>
+        <input type="range" id="prop-height" min="${MIN_SIZE}" max="${MAX_SIZE}" step="0.05" aria-label="Object height" disabled>
+      </div>
+    </div>
+    <div class="prop-editor-options">
+      <label>
+        <input type="checkbox" name="interactive" checked disabled>
+        Interactive
       </label>
       <button type="button" data-action="remove" disabled>Remove</button>
     </div>
@@ -67,8 +78,12 @@ export function createPropEditor({
   const saveButton = button('save');
   const removeButton = button('remove');
   const fileInput = panel.querySelector('input[type=file]');
-  const widthInput = panel.querySelector('input[type=range]');
-  const widthValue = panel.querySelector('output');
+  const interactiveInput = panel.querySelector('[name=interactive]');
+  const sizeFields = ['width', 'height'].map(dimension => ({
+    dimension,
+    input: panel.querySelector(`#prop-${dimension}`),
+    output: panel.querySelector(`output[for="prop-${dimension}"]`),
+  }));
   const propList = panel.querySelector('select');
   const status = panel.querySelector('[role=status]');
 
@@ -89,9 +104,14 @@ export function createPropEditor({
     const selection = definitions.get(selectedId);
     propList.value = selectedId ?? '';
     propList.disabled = definitions.size === 0;
-    widthInput.disabled = removeButton.disabled = !selection;
-    widthInput.value = selection?.width ?? DEFAULT_WIDTH;
-    widthValue.textContent = selection ? Number(selection.width.toFixed(2)).toString() : '';
+    removeButton.disabled = interactiveInput.disabled = !selection;
+    interactiveInput.checked = selection?.interactive !== false;
+    for (const { dimension, input, output } of sizeFields) {
+      const size = selection?.[dimension];
+      input.disabled = !selection;
+      input.value = size ?? DEFAULT_WIDTH;
+      output.value = Number.isFinite(size) ? Number(size.toFixed(2)).toString() : '';
+    }
     fileButton.disabled = !loaded || placing;
     saveButton.disabled = !loaded || saving || !edits.size;
     button('close').disabled = saving;
@@ -178,7 +198,7 @@ export function createPropEditor({
     setHint('Preparing PNG…');
     try {
       const id = crypto.randomUUID();
-      const input = { id, blob: file, name: file.name, s, h, width: DEFAULT_WIDTH };
+      const input = { id, blob: file, name: file.name, s, h, width: DEFAULT_WIDTH, interactive: true };
       const placed = await addProp(input);
       if (!placed) throw new Error('Object placement failed.');
       const definition = { ...input, ...placed };
@@ -210,8 +230,14 @@ export function createPropEditor({
     select(propList.value);
     setHint();
   });
-  widthInput.addEventListener('input', () => {
-    changeProp(selectedId, { width: widthInput.valueAsNumber });
+  for (const { dimension, input } of sizeFields) {
+    input.addEventListener('input', () => {
+      changeProp(selectedId, { [dimension]: input.valueAsNumber });
+      setHint();
+    });
+  }
+  interactiveInput.addEventListener('change', () => {
+    changeProp(selectedId, { interactive: interactiveInput.checked });
     setHint();
   });
   removeButton.addEventListener('click', () => {

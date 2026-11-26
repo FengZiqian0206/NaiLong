@@ -1,14 +1,14 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, goalLapProgress } from './physics.js?v=20261123c';
-import { createCameraPose, updateCameraPose } from './camera.js?v=20261123c';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, goalLapProgress } from './physics.js?v=20261126';
+import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261126';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
-import { addArtwork } from './artwork.js?v=20261125';
-import { createCharacter } from './character.js?v=20261124c';
-import { createCharacterActions } from './character-actions.js?v=20261124c';
+import { addArtwork } from './artwork.js?v=20261126';
+import { createCharacter } from './character.js?v=20261126';
+import { createCharacterActions } from './character-actions.js?v=20261126';
 import { createFeedback } from './feedback.js?v=20261124c';
-import { createProps, propPoint } from './props.js?v=20261125';
-import { createPropEditor } from './prop-editor.js?v=20261125';
+import { createProps, propPoint } from './props.js?v=20261126';
+import { createPropEditor } from './prop-editor.js?v=20261126';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -26,7 +26,7 @@ const camera = new THREE.OrthographicCamera(-60, 60, 35, -35, .1, 200);
 camera.position.z = 100;
 const parameters = new URLSearchParams(location.search);
 const debug = parameters.has('debug');
-const player = createPlayer();
+const player = createPlayer({ bounded: true });
 if (debug) {
   const panel = parameters.has('panel') ? PANELS[Number(parameters.get('panel'))] : null;
   const transition = parameters.has('transition') ? TRANSITIONS[Number(parameters.get('transition') || 1) - 1] : null;
@@ -187,9 +187,11 @@ function frame(now) {
   viewHeight += (targetHeight - viewHeight) * easing;
   updateCameraPose(cameraPose, player, delta, viewHeight);
   const routePosition = player.progress * WORLD.totalLength;
-  camera.position.set(cameraPose.x, cameraPose.y, 100);
-  camera.rotation.z = cameraPose.angle;
-  camera.left = -viewHeight * aspect / 2; camera.right = viewHeight * aspect / 2;
+  const viewWidth = viewHeight * aspect;
+  const framed = frameRouteEnds(cameraPose, viewWidth, viewHeight);
+  camera.position.set(framed.x, framed.y, 100);
+  camera.rotation.z = framed.angle;
+  camera.left = -viewWidth / 2; camera.right = viewWidth / 2;
   camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2;
   camera.updateProjectionMatrix();
   hero.position.set(player.x, player.y, 0);
@@ -209,8 +211,8 @@ function frame(now) {
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
-  updateArtwork(cameraPose.progress, viewHeight * aspect, viewHeight);
-  props.update(paused ? 0 : delta, player, cameraPose.progress, viewHeight * aspect, viewHeight, editor.active || finished);
+  updateArtwork(cameraPose.progress, viewWidth, viewHeight, framed.progress);
+  props.update(paused ? 0 : delta, player, framed.progress, viewWidth, viewHeight, editor.active || finished);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
@@ -219,7 +221,7 @@ function frame(now) {
   if (debug) canvas.dataset.diagnostics = JSON.stringify({
     x: player.x, y: player.y, grounded: player.grounded, jumps: player.jumps, airJumpUsed: player.airJumpUsed,
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
-    nx: player.nx, ny: player.ny, cameraAngle: cameraPose.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight,
+    nx: player.nx, ny: player.ny, cameraAngle: framed.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight, viewWidth,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,
     falling: player.falling, fallLocked: cameraPose.fallLocked, cameraLift: cameraPose.lift,
     respawns: player.respawnId, respawnScene: player.respawnScene + 1,

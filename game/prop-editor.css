@@ -24,7 +24,7 @@
 
 .prop-editor header,
 .prop-editor-actions,
-.prop-editor-properties {
+.prop-editor-options {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -89,8 +89,17 @@
   width: 100%;
 }
 
-.prop-editor-properties label {
+.prop-editor-properties {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prop-editor-properties > div {
+  display: grid;
   grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 5px;
 }
 
 .prop-editor-properties input {
@@ -102,6 +111,17 @@
 
 .prop-editor-properties output {
   font: 11px ui-monospace, Consolas, monospace;
+}
+
+.prop-editor-options label {
+  display: flex;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.prop-editor-options input {
+  margin: 0;
+  accent-color: #a34e34;
 }
 
 .prop-editor p {

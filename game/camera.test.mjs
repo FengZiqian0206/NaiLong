@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { createCameraPose, updateCameraPose } from './camera.js';
+import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js';
 import { PHYSICS } from './physics.js';
+import { SPAWN, GOAL } from './scenes.js?v=20261123b';
 import { WORLD, samplePath, nearestPath } from './world.js';
 
 const radians = degrees => degrees * Math.PI / 180;
@@ -37,6 +38,24 @@ for (const fraction of [-1, -.2, 0, .25, .5, .75, .999, 1, 1.2, 2.3]) {
   assert.ok(nearest.progress >= 0 && nearest.progress < 1);
 }
 assert.ok(Number.isFinite(nearestPath(0, 0).x + nearestPath(0, 0).y), 'the center has a deterministic finite nearest point');
+
+for (const aspect of [390 / 844, 4 / 3, 16 / 9, 21 / 9]) {
+  for (const [minHeight, minWidth] of [[28, 40], [56, 78]]) {
+    const height = Math.max(minHeight, minWidth / aspect), width = height * aspect;
+    for (const [point, side] of [[SPAWN, 1], [GOAL, -1]]) {
+      const endpoint = frameRouteEnds(createCameraPose(point, height), width, height);
+      assert.ok(Math.abs(endpoint.x * side - width / 2) < 1e-8, 'the endpoint meridian is flush with the edge');
+      const hero = screenVector(endpoint, point.x - endpoint.x, point.y - endpoint.y);
+      assert.ok(Math.abs(hero.x * side + width / 2 - .8) < .02, 'the character stays just inside the viewport');
+      for (let distance = 0; distance < WORLD.totalLength / 8; distance += .25) {
+        const ground = samplePath(side * distance / WORLD.totalLength);
+        const framed = frameRouteEnds(createCameraPose(ground, height), width, height);
+        const extent = Math.abs(Math.cos(framed.angle)) * width / 2 + Math.abs(Math.sin(framed.angle)) * height / 2;
+        if (distance > 0) assert.ok(framed.x * side >= extent - 1e-8, 'no rotated corner shows the other end');
+      }
+    }
+  }
+}
 for (const viewHeight of [28, 56, 86]) {
   const player = playerAt(0), pose = createCameraPose(player, viewHeight);
   checkFollow(pose, player, viewHeight);

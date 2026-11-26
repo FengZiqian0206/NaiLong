@@ -120,6 +120,7 @@ export async function createCharacter(scene, radius) {
   const weights = new Float32Array(crops.length);
   const desired = new Float32Array(crops.length);
   const eyes = new THREE.Vector3().copy(authored[idle].eyes);
+  const sceneLight = { value: new THREE.Color('#ffc184') };
   weights[idle] = 1;
   const uniforms = {
     walkSheet: { value: textures[0] },
@@ -130,6 +131,7 @@ export async function createCharacter(scene, radius) {
     weights: { value: weights },
     eyes: { value: eyes },
     time: { value: 0 },
+    sceneLight,
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
@@ -146,7 +148,7 @@ export async function createCharacter(scene, radius) {
       uniform vec4 frameBoxes[${crops.length}];
       uniform vec3 frameEyes[${crops.length}];
       uniform float weights[${crops.length}], time;
-      uniform vec3 eyes;
+      uniform vec3 eyes, sceneLight;
       varying vec2 spriteUV;
       vec4 readFrame(int index, vec2 point) {
         vec4 box = frameBoxes[index];
@@ -166,6 +168,8 @@ export async function createCharacter(scene, radius) {
       }
       void main() {
         vec4 result = vec4(0.);
+        const vec3 luminance = vec3(.2126, .7152, .0722);
+        vec3 reflectedLight = sceneLight / max(.01, dot(sceneLight, luminance));
         // The paint moves slowly behind the anchored eyes and silhouette.
         vec2 flow = .028 * vec2(
           sin(6.8 * spriteUV.y - 3.2 * spriteUV.x - time * .82),
@@ -188,6 +192,9 @@ export async function createCharacter(scene, radius) {
           color.rgb *= mix(vec3(1.), vec3(1. + .05 * sin(time * 1.0 + 6. * q.x),
             1. + .03 * cos(time * .74 - 5. * q.y), 1. - .055 * sin(time * 1.0 + 6. * q.x)), painted);
           vec3 linearColor = sRGBTransferEOTF(vec4(clamp(color.rgb, 0., 1.), 1.)).rgb;
+          // The cool brushstrokes pick up nearby light while the eyes and edge keep their paint.
+          float reflection = .16 * painted * smoothstep(.02, .23, color.b - min(color.r, color.g));
+          linearColor = mix(linearColor, reflectedLight * dot(linearColor, luminance), reflection);
           result += vec4(linearColor * color.a, color.a) * weights[i];
         }
         if (result.a < .008) discard;
@@ -197,34 +204,31 @@ export async function createCharacter(scene, radius) {
   });
   const object = new THREE.Group();
   const glow = {
-    color: { value: new THREE.Color('#ffc2a4') },
+    color: sceneLight,
     breath: { value: 1 },
-    contact: { value: 1 },
   };
-  const aura = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+  const aura = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.ShaderMaterial({
     uniforms: glow,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     vertexShader: `
-      varying vec2 lightUV;
+      varying vec2 lightOffset;
       void main() {
-        lightUV = uv * 2. - 1.;
+        lightOffset = position.xy;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
       }`,
     fragmentShader: `
       uniform vec3 color;
-      uniform float breath, contact;
-      varying vec2 lightUV;
+      uniform float breath;
+      varying vec2 lightOffset;
       void main() {
-        vec2 air = lightUV - vec2(0., .05);
-        vec2 feet = (lightUV - vec2(0., -.33)) * vec2(1.08, 3.8);
-        float halo = exp(-2.8 * dot(air, air));
-        float spill = exp(-3.1 * dot(feet, feet)) * contact;
-        vec2 edge = 1. - abs(lightUV);
-        float fade = smoothstep(0., .36, min(edge.x, edge.y));
-        float alpha = (.22 * halo + .13 * spill) * fade * breath;
-        gl_FragColor = vec4(mix(color, vec3(1., .91, .81), .22 * halo), alpha);
+        float radiusSquared = dot(lightOffset, lightOffset);
+        float innerLight = exp(-11. * radiusSquared);
+        float outerLight = exp(-4.5 * radiusSquared);
+        float fade = 1. - smoothstep(.25, .98, radiusSquared);
+        float alpha = (.14 * innerLight + .11 * outerLight) * fade * breath;
+        gl_FragColor = vec4(mix(color, vec3(1., .91, .81), .18 * innerLight), alpha);
         #include <colorspace_fragment>
       }`,
   }));
@@ -241,7 +245,8 @@ export async function createCharacter(scene, radius) {
   object.add(mesh);
   scene.add(object);
   function positionGlow(pulse = 1) {
-    aura.scale.set(mesh.scale.x * 2.9 * pulse, mesh.scale.y * 2.8 * pulse, 1);
+    const spread = authored[idle].width * 3.1 * pulse;
+    aura.scale.set(spread, spread, 1);
     aura.position.y = mesh.position.y + mesh.scale.y * .51;
   }
   positionGlow();
@@ -300,7 +305,6 @@ export async function createCharacter(scene, radius) {
       mesh.position.y = -radius;
       mesh.rotation.z = 0;
       glow.breath.value = 1;
-      glow.contact.value = 1;
       positionGlow();
     },
     update(dt, { direction = 0, grounded = true, verticalSpeed = 0, glowColor, glowStrength = 1 }) {
@@ -352,8 +356,7 @@ export async function createCharacter(scene, radius) {
       mesh.scale.set(width * (1 - .017 * breathe), height * stretch * (1 + .016 * breathe + .033 * bob), 1);
       mesh.position.y = -radius + .035 * Math.abs(bob);
       mesh.rotation.z = lean;
-      if (glowColor) glow.color.value.copy(glowColor);
-      glow.contact.value = mix(glow.contact.value, grounded ? 1 : .16, 1 - Math.exp(-10 * dt));
+      if (glowColor) sceneLight.value.copy(glowColor);
       const pulse = state === 'idle' ? Math.sin(time * 2.4) : .28 * Math.sin(time * 2.4);
       glow.breath.value = glowStrength * (1 + .15 * pulse);
       positionGlow(1 + .055 * pulse);

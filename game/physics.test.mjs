@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261123c';
+import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261126';
 import {nearestPath} from './world.js?v=20261123b';
 import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint} from './scenes.js?v=20261123b';
 import {createCharacterActions} from './character-actions.js';
@@ -294,9 +294,26 @@ assert.ok(p.progress>.98 && !p.won,'held A crosses the closing seam in reverse')
 resetPlayer(p);Object.assign(p,GOAL,{vx:0,vy:0,grounded:true,progress:GOAL.progress});tick(p);
 assert.ok(!p.won,'standing at the goal without travelling a lap cannot win');
 
+const bounded = createPlayer({ bounded: true });
+for (let i = 0; i < 60; i++) tick(bounded, -1, i === 0);
+assert.equal(bounded.lapProgress, 0, 'walking or jumping left cannot pass the start in the game');
+assert.equal(bounded.progress, SPAWN.progress);
+assert.ok(!bounded.grounded && bounded.y > SPAWN.y, 'the endpoint allows normal jumping');
+const beforeGoal = WORLD.totalLength - 2;
+Object.assign(bounded, floorPoint(beforeGoal), { grounded: true, vx: 0, vy: 0,
+  lapProgress: (beforeGoal - SPAWN.s) / WORLD.totalLength });
+let reachedInAir = false;
+for (let i = 0; i < 240 && !bounded.won; i++) {
+  tick(bounded, 1, i === 0);
+  assert.ok(bounded.progress <= GOAL.progress + 1e-10, 'holding right stays inside the finish seam');
+  if (!bounded.grounded && bounded.lapProgress === goalLapProgress) reachedInAir = true;
+}
+assert.ok(reachedInAir && bounded.won && bounded.grounded, 'arrival in the air wins when the character lands');
+
 // A real-input route follows the floor, jumps low ledges and the gap bridges,
 // and uses its extra airborne impulse near the apex. No position overrides.
 resetPlayer(p);
+p.bounded = true;
 const routeRespawnId=p.respawnId;
 const noOp=()=>{};
 const routeActions=createCharacterActions(p,{

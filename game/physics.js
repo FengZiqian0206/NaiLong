@@ -43,8 +43,8 @@ export function nearestSurface(x,y) {
     progress:(best.s0+bestT*(best.s1-best.s0))/WORLD.totalLength};
 }
 
-export function createPlayer() {
-  const player={};
+export function createPlayer({ bounded = false } = {}) {
+  const player={ bounded };
   resetPlayer(player);
   return player;
 }
@@ -111,14 +111,25 @@ export function stepPlayer(player,input,dt) {
       supportGround=ground;
     }
   }
-  const current=nearestPath(player.x,player.y);
-  player.nx=current.nx;player.ny=current.ny;
-  player.tx=-current.ny;player.ty=current.nx;
+  let current=nearestPath(player.x,player.y);
   // Signed unwrapped travel keeps the HUD and victory honest across the 1→0 seam.
   let routeDelta=current.progress-player.progress;
   if(routeDelta>.5) routeDelta-=1;
   if(routeDelta<-.5) routeDelta+=1;
   player.lapProgress+=routeDelta;
+  if (player.bounded && (player.lapProgress < 0 || player.lapProgress > goalLapProgress)) {
+    const atStart = player.lapProgress < 0;
+    const edge = atStart ? SPAWN : GOAL;
+    const radius = Math.hypot(player.x, player.y);
+    const radialSpeed = player.vx * current.nx + player.vy * current.ny;
+    // Keep jumping and falling velocity while stopping at the end of the route.
+    player.x = edge.nx * radius; player.y = edge.ny * radius;
+    player.vx = edge.nx * radialSpeed; player.vy = edge.ny * radialSpeed;
+    player.lapProgress = atStart ? 0 : goalLapProgress;
+    current = edge;
+  }
+  player.nx=current.nx;player.ny=current.ny;
+  player.tx=-current.ny;player.ty=current.nx;
   player.progress=current.progress;
   player.elapsed+=dt;
   if(supportGround) rememberGround(player,supportGround,current.progress);

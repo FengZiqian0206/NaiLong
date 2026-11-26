@@ -42,3 +42,26 @@ export function updateCameraPose(pose, player, dt, viewHeight = 28) {
   pose.lift += (lift - pose.lift) * (1 - Math.exp(-5 * dt));
   return placeCamera(pose, ground, viewHeight);
 }
+
+export function frameRouteEnds(pose, viewWidth, viewHeight) {
+  const halfWidth = viewWidth / 2, halfHeight = viewHeight / 2;
+  const distance = Math.min(pose.progress, 1 - pose.progress) * WORLD.totalLength;
+  const limit = Math.min(WORLD.totalLength / 8, .9 * viewWidth + halfHeight);
+  if (distance >= limit) return pose;
+
+  // Level 1 and the last road share a meridian. Level the view near it,
+  // then keep the whole rotated view on the current side of the seam.
+  const fadeStart = Math.min(limit * .7, halfWidth);
+  const t = Math.max(0, (distance - fadeStart) / (limit - fadeStart));
+  const blend = t * t * (3 - 2 * t);
+  const tilt = Math.atan2(Math.sin(pose.angle), Math.cos(pose.angle));
+  const framed = placeCamera({ ...pose, angle: pose.angle - tilt * (1 - blend) }, samplePath(pose.progress), viewHeight);
+  const side = pose.progress < .5 ? 1 : -1;
+  const c = Math.cos(framed.angle), s = Math.sin(framed.angle);
+  const edge = halfWidth * c + halfHeight * Math.abs(s);
+  const shift = Math.max(0, edge - side * framed.x) * side;
+  framed.x += shift;
+  framed.y += shift * s / c;
+  framed.progress = nearestPath(framed.x, framed.y).progress;
+  return framed;
+}

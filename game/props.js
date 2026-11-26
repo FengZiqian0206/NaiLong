@@ -23,6 +23,7 @@ function propDistance(point, prop) {
 function nearbyProp(props, point) {
   let nearest = null, best = Infinity;
   for (const prop of props) {
+    if (!prop.interactive) continue;
     const distance = propDistance(point, prop);
     if (distance > reach) continue;
     const centerDistance = Math.hypot(routeDelta(point.s, prop.s), point.h - prop.h);
@@ -129,16 +130,22 @@ export async function createProps(scene) {
   const editColor = new THREE.Color('#b5ffee');
   let active = null, selected = null;
 
-  function change(prop, { s, h, width }) {
-    if (Number.isFinite(s)) prop.s = wrap(s);
-    if (Number.isFinite(h)) prop.h = Math.max(-ringRadius + 1, h);
-    if (Number.isFinite(width) && width > 0) prop.width = width;
-    prop.height = prop.width * prop.aspect;
-    prop.mesh.material.uniforms.bounds.value.set(prop.s, prop.h, prop.width, prop.height);
-    return { id: prop.id, name: prop.name, blob: prop.blob, s: prop.s, h: prop.h, width: prop.width };
+  function placement(prop) {
+    const { id, name, blob, s, h, width, height, interactive } = prop;
+    return { id, name, blob, s, h, width, height, interactive };
   }
 
-  function mount(definition, texture, aspect) {
+  function change(prop, { s, h, width, height, interactive }) {
+    if (Number.isFinite(s)) prop.s = wrap(s);
+    if (Number.isFinite(h)) prop.h = Math.max(-ringRadius + 1, h);
+    if (Number.isFinite(width) && width >= .35 && width <= 18) prop.width = width;
+    if (Number.isFinite(height) && height >= .35 && height <= 18) prop.height = height;
+    if (typeof interactive === 'boolean') prop.interactive = interactive;
+    prop.mesh.material.uniforms.bounds.value.set(prop.s, prop.h, prop.width, prop.height);
+    return placement(prop);
+  }
+
+  function mount(definition, texture) {
     texture.premultiplyAlpha = true;
     const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       uniforms: { art: { value: texture }, bounds: { value: new THREE.Vector4() }, pulse: { value: 1 },
@@ -146,7 +153,7 @@ export async function createProps(scene) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     mesh.renderOrder = definition.blob ? .6 : .5;
-    const prop = { ...definition, mesh, aspect, elapsed: bounceDuration };
+    const prop = { ...definition, interactive: definition.interactive !== false, mesh, elapsed: bounceDuration };
     const placed = change(prop, definition);
     props.set(prop.id, prop);
     scene.add(mesh);
@@ -164,7 +171,8 @@ export async function createProps(scene) {
     url.search = manifestURL.search;
     const texture = await loader.loadAsync(url.href);
     mount({ id, s: home.start + (x + width / 2) * home.pixelScale,
-      h: (home.baseline - y - height / 2) * home.pixelScale, width: width * home.pixelScale }, texture, height / width);
+      h: (home.baseline - y - height / 2) * home.pixelScale, width: width * home.pixelScale,
+      height: height * home.pixelScale }, texture);
   }));
 
   return {
@@ -191,12 +199,14 @@ export async function createProps(scene) {
       if (!definition.id || props.has(definition.id) || ![definition.s, definition.h, definition.width].every(Number.isFinite) ||
         definition.width < .35 || definition.width > 18) throw new Error('The prop placement is invalid.');
       const texture = await uploadTexture(definition.blob);
-      return mount(definition, texture, texture.image.height / texture.image.width);
+      const height = Number.isFinite(definition.height) && definition.height > 0
+        ? definition.height : definition.width * texture.image.height / texture.image.width;
+      return mount({ ...definition, height }, texture);
     },
     pick(point) {
       const list = Array.from(props.values());
       const prop = list.findLast(item => item.blob && propDistance(point, item) <= .18);
-      if (prop) return { id: prop.id, name: prop.name, blob: prop.blob, s: prop.s, h: prop.h, width: prop.width };
+      if (prop) return placement(prop);
     },
     edit(id, values) {
       const prop = props.get(id);
