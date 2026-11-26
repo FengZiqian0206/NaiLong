@@ -32,5 +32,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+      # Pages can briefly see an empty listing after upload (actions/deploy-pages#451).
+      - name: Allow the Pages artifact to become visible
+        run: sleep 60
       - id: deployment
         uses: actions/deploy-pages@v4
