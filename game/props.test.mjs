@@ -26,8 +26,9 @@ test('scene props support disappearing, picture reveals and legacy bounce', asyn
   const props = await createProps(scene);
   const add = (id, s, options) => props.add({ id, s, h: 1, width: 2, blob, ...options });
   await add('pickup', 4, { behavior: 'disappear' });
-  await add('picture', 14, { behavior: 'image', popupImage: blob, popupName: 'Keepsake.png' });
+  await add('picture', 14, { behavior: 'image', popupImage: blob, popupName: 'Keepsake.png', requires: ['pickup', 'other-pickup'] });
   await add('legacy', 24);
+  await add('other-pickup', 34, { behavior: 'disappear' });
   const view = (s, editing = false) => {
     const path = samplePath(s / WORLD.totalLength);
     const player = { x: path.x + path.nx, y: path.y + path.ny };
@@ -37,7 +38,7 @@ test('scene props support disappearing, picture reveals and legacy bounce', asyn
 
   const pickupPlayer = view(4);
   assert.equal(props.activeId, 'pickup');
-  assert.equal(props.interact(pickupPlayer), null);
+  assert.deepEqual(props.interact(pickupPlayer), { type: 'pickup', id: 'pickup', name: undefined, blob, url: undefined });
   view(4);
   assert.deepEqual(props.collectedIds, ['pickup']);
   assert.equal(props.activeId, null);
@@ -49,10 +50,16 @@ test('scene props support disappearing, picture reveals and legacy bounce', asyn
   props.reset();
   view(4);
   assert.equal(props.activeId, 'pickup', 'a new run restores pickups');
+  props.interact(pickupPlayer);
 
   const picturePlayer = view(14);
   assert.equal(props.activeId, 'picture');
-  assert.equal(props.interact(picturePlayer), blob);
+  assert.equal(props.prompt.blocked, true);
+  assert.deepEqual(props.interact(picturePlayer), { type: 'blocked' }, 'one of two dependencies cannot open the image');
+  props.interact(view(34));
+  view(14);
+  assert.equal(props.prompt.blocked, false);
+  assert.deepEqual(props.interact(picturePlayer), { type: 'image', image: blob });
   assert.equal(props.pick({ s: 14, h: 1 }).popupName, 'Keepsake.png');
   props.edit('picture', { interactive: false });
   view(14);

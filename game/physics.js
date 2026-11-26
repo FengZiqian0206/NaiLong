@@ -57,6 +57,15 @@ export function resetPlayer(player) {
     respawnScene:0,respawnLapProgress:0,respawnId:player.respawnId??0});
 }
 
+export function respawnPlayer(player, sceneIndex) {
+  if (sceneIndex !== undefined) rememberGround(player, { sceneIndex }, player.progress);
+  const spawn=levelSpawns[player.respawnScene],surface=nearestSurface(spawn.x,spawn.y);
+  Object.assign(player,{x:spawn.x,y:spawn.y,nx:spawn.nx,ny:spawn.ny,
+    tx:-spawn.ny,ty:spawn.nx,vx:0,vy:0,grounded:true,groundId:surface.platformId,
+    airJumpUsed:false,falling:false,progress:spawn.progress,
+    lapProgress:player.respawnLapProgress,won:false,respawnId:player.respawnId+1});
+}
+
 export function stepPlayer(player,input,dt) {
   if(!(dt>0)||!Number.isFinite(dt)) return;
   // Clamp callers as a last defence; the render loop supplies fixed 1/120 s steps.
@@ -136,11 +145,7 @@ export function stepPlayer(player,input,dt) {
   const height=Math.hypot(player.x,player.y)-WORLD.ringRadius;
   player.falling=!player.grounded && height<PHYSICS.fallHeight;
   if(!player.grounded && height<PHYSICS.respawnHeight) {
-    const spawn=levelSpawns[player.respawnScene],surface=nearestSurface(spawn.x,spawn.y);
-    Object.assign(player,{x:spawn.x,y:spawn.y,nx:spawn.nx,ny:spawn.ny,
-      tx:-spawn.ny,ty:spawn.nx,vx:0,vy:0,grounded:true,groundId:surface.platformId,
-      airJumpUsed:false,falling:false,progress:spawn.progress,
-      lapProgress:player.respawnLapProgress,won:false,respawnId:player.respawnId+1});
+    respawnPlayer(player);
     return;
   }
   if(player.grounded && player.lapProgress>=goalLapProgress) player.won=true;

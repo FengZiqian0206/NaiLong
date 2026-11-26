@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadSharedProps, publishSharedProps } from './shared-props.js';
 
-test('global publishing keeps images and reactions, and refuses to overwrite a newer revision', async context => {
+test('global publishing preserves editable originals, dependencies and zones and protects newer revisions', async context => {
   const token = 'github_pat_test_not_a_real_token';
   const sha = '1'.repeat(40);
   let document = { version: 1, revision: 'initial', props: [] };
@@ -33,12 +33,21 @@ test('global publishing keeps images and reactions, and refuses to overwrite a n
     return Response.json(document);
   });
 
-  const objects = [{ id: 'lamp', name: '吊灯', s: 3, h: 2, width: 1, height: 2,
-    behavior: 'image', interactive: true, blob: png, popupImage: png, popupName: '说明.png' }];
+  assert.equal((await loadSharedProps()).includesDefaults, false, 'an older layout still needs the default props');
+  const objects = [{ id: 'lamp', name: 'Lamp', nameZh: '吊灯', s: 3, h: 2, width: 1, height: 2,
+    behavior: 'image', interactive: true, blob: png, popupImage: png, popupName: '说明.png',
+    requires: ['key'], fallZone: { s: 4, h: 1, width: 3, height: 2 } },
+  { id: 'key', asset: 'key', name: 'Key', nameZh: '钥匙', s: 9, h: 2, width: 2, height: 1,
+    behavior: 'disappear', interactive: true }];
   const published = await publishSharedProps(objects, 'initial', token);
   const loaded = await loadSharedProps();
   assert.equal(loaded.revision, published.revision);
-  assert.deepEqual(loaded.props, objects);
+  assert.equal(loaded.includesDefaults, true, 'deleting an original must not reintroduce it on reload');
+  assert.deepEqual(loaded.props, published.props);
+  assert.deepEqual(loaded.props[0].requires, ['key']);
+  assert.deepEqual(loaded.props[0].fallZone, objects[0].fallZone);
+  assert.equal(loaded.props[1].asset, 'key');
+  assert.equal(document.props[1].sprite, undefined, 'built-in PNGs are reused without copying the image into the layout');
   assert.deepEqual(await loaded.props[0].popupImage.arrayBuffer(), await png.arrayBuffer());
   assert.equal(JSON.stringify(document).includes(token), false);
   await assert.rejects(publishSharedProps([], 'initial', token), /shared layout changed/);

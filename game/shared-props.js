@@ -53,36 +53,45 @@ function layoutRecords(props) {
   if (!Array.isArray(props) || props.length > 128) throw new Error('A shared layout can contain up to 128 objects.');
   const ids = new Set();
   return props.map(prop => {
-    const { id, name, s, h, width, height, interactive, behavior, popupName } = prop ?? {};
+    const { id, name, nameZh, asset, s, h, width, height, interactive, behavior, popupName, requires, fallZone } = prop ?? {};
     if (typeof id !== 'string' || !/^[a-z0-9_-]{1,80}$/i.test(id) || ids.has(id) ||
       ![s, h, width].every(Number.isFinite) || width < .35 || width > 18 ||
       (height !== undefined && (!Number.isFinite(height) || height <= 0))) {
       throw new Error('An object in the shared layout has an invalid placement.');
     }
     ids.add(id);
-    return { id, name: typeof name === 'string' ? name.slice(0, 255) : 'PNG object', s, h, width, height,
+    const dependencyIds = Array.isArray(requires) ? [...new Set(requires)].filter(value =>
+      typeof value === 'string' && /^[a-z0-9_-]{1,80}$/i.test(value) && value !== id).slice(0, 128) : [];
+    const zone = fallZone && [fallZone.s, fallZone.h, fallZone.width, fallZone.height].every(Number.isFinite) &&
+      fallZone.width >= .25 && fallZone.width <= 512 && fallZone.height >= .25 && fallZone.height <= 512
+      ? { s: fallZone.s, h: fallZone.h, width: fallZone.width, height: fallZone.height } : null;
+    return { id, name: typeof name === 'string' ? name.slice(0, 255) : 'PNG object',
+      nameZh: typeof nameZh === 'string' ? nameZh.slice(0, 255) : undefined,
+      asset: asset === id ? asset : undefined, s, h, width, height,
       interactive: interactive !== false, behavior: modes.includes(behavior) ? behavior : 'bounce',
-      popupName: typeof popupName === 'string' ? popupName.slice(0, 255) : undefined };
+      popupName: typeof popupName === 'string' ? popupName.slice(0, 255) : undefined,
+      requires: dependencyIds, fallZone: zone };
   });
 }
 
 function parseLayout(text) {
   if (text.length > maxLayoutBytes) throw new Error('The shared layout is too large.');
-  const { version, revision, props } = JSON.parse(text);
+  const { version, revision, props, includesDefaults } = JSON.parse(text);
   if (version !== 1 || typeof revision !== 'string' ||
     (revision !== 'initial' && !/^[0-9a-f-]{36}$/i.test(revision))) {
     throw new Error('This shared layout could not be read.');
   }
-  return { revision, props };
+  return { revision, props, includesDefaults: includesDefaults === true };
 }
 
 async function readLayout(response) {
   if (!response.ok) throw new Error('The shared layout is unavailable.');
-  const { revision, props } = parseLayout(await response.text());
-  return { revision, props: layoutRecords(props).map((prop, index) => {
+  const { revision, props, includesDefaults } = parseLayout(await response.text());
+  return { revision, includesDefaults, props: layoutRecords(props).map((prop, index) => {
     const { sprite, popup } = props[index];
     if (prop.interactive && prop.behavior === 'image' && !popup) throw new Error('A shared image interaction has no image.');
-    return { ...prop, blob: storedImage(sprite, ['image/png']), popupImage: popup ? storedImage(popup, photoTypes) : undefined };
+    return { ...prop, blob: prop.asset ? undefined : storedImage(sprite, ['image/png']),
+      popupImage: popup ? storedImage(popup, photoTypes) : undefined };
   }) };
 }
 
@@ -128,11 +137,11 @@ export async function publishSharedProps(definitions, expectedRevision, token) {
   const props = await Promise.all(records.map(async (prop, index) => {
     const { blob, popupImage } = definitions[index];
     if (prop.interactive && prop.behavior === 'image' && !popupImage) throw new Error('Choose a popup image before publishing.');
-    return { ...prop, sprite: await serializeImage(blob, ['image/png']),
+    return { ...prop, sprite: prop.asset ? undefined : await serializeImage(blob, ['image/png']),
       popup: popupImage ? await serializeImage(popupImage, photoTypes) : undefined };
   }));
   const revision = crypto.randomUUID();
-  const packed = new TextEncoder().encode(JSON.stringify({ version: 1, revision, props }));
+  const packed = new TextEncoder().encode(JSON.stringify({ version: 1, revision, includesDefaults: true, props }));
   if (packed.byteLength > maxLayoutBytes) throw new Error('The shared layout is too large.');
 
   const metadata = await (await githubRequest(`${contentsURL}?ref=main`, access)).json();
@@ -148,6 +157,6 @@ export async function publishSharedProps(definitions, expectedRevision, token) {
   await githubRequest(contentsURL, access, { method: 'PUT', body: JSON.stringify({
     message: 'Save shared game objects', content: asBase64(packed), sha, branch: 'main',
   }) }, 'application/vnd.github+json');
-  return { revision, props: records.map((prop, index) => ({ ...prop,
+  return { revision, includesDefaults: true, props: records.map((prop, index) => ({ ...prop,
     blob: definitions[index].blob, popupImage: definitions[index].popupImage })) };
 }

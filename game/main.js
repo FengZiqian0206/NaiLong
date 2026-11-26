@@ -1,16 +1,17 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, goalLapProgress } from './physics.js?v=20261126';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261126c';
 import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261126';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
-import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint } from './scenes.js?v=20261123b';
+import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt } from './scenes.js?v=20261123b';
 import { addArtwork } from './artwork.js?v=20261126';
 import { createCharacter } from './character.js?v=20261126';
-import { createCharacterActions } from './character-actions.js?v=20261126';
+import { createCharacterActions } from './character-actions.js?v=20261126c';
 import { createFeedback } from './feedback.js?v=20261124c';
-import { createProps, propPoint } from './props.js?v=20261126b';
-import { createPropEditor } from './prop-editor.js?v=20261126b';
+import { createProps, propPoint } from './props.js?v=20261126c';
+import { createPropEditor } from './prop-editor.js?v=20261126c';
 import { createPropPopup } from './prop-popup.js?v=20261126b';
-import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261126b';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261126c';
+import { createPropHud } from './prop-hud.js?v=20261126c';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -89,10 +90,19 @@ function clearInput() {
   keys.clear();
   actions.cancelJump();
 }
-const pointerPoint = new THREE.Vector3();
+const pointerPoint = new THREE.Vector3(), promptPoint = new THREE.Vector3();
 const popup = createPropPopup($('game'), { clearInput });
+const propHud = createPropHud($('game'));
 const editor = createPropEditor({
-  root: $('game'), canvas, clearInput, loadSharedProps, publishSharedProps,
+  root: $('game'), canvas, clearInput, publishSharedProps, defaultProps: props.defaults,
+  previewZone: props.previewZone,
+  async loadSharedProps() {
+    const shared = await loadSharedProps();
+    if (shared.includesDefaults) return shared;
+    const layout = new Map(props.defaults.map(prop => [prop.id, prop]));
+    for (const prop of shared.props) layout.set(prop.id, prop);
+    return { ...shared, props: [...layout.values()] };
+  },
   getPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
@@ -102,14 +112,19 @@ const editor = createPropEditor({
   },
   addProp: props.add, pickProp: props.pick, editProp: props.edit, removeProp: props.remove, selectProp: props.select,
   async restoreProps(definitions) {
+    const ids = new Set(definitions.map(prop => prop.id));
+    for (const prop of props.defaults) if (!ids.has(prop.id)) props.remove(prop.id);
     const results = await Promise.allSettled(definitions.map(props.add));
     return results.filter(result => result.status === 'fulfilled').map(result => result.value);
   },
 });
+let propsReady = false;
+void editor.ready.then(() => { propsReady = true; });
 function restart() {
   resetPlayer(player); clearInput();
   actions.reset();
   props.reset();
+  propHud.reset();
   Object.assign(cameraPose, createCameraPose(player, viewHeight));
   accumulator = 0; paused = false; finished = false; started = false;
   canvas.focus({ preventScroll: true });
@@ -126,7 +141,7 @@ window.addEventListener('keydown', (event) => {
   if (popup.active || event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.code === 'KeyP' && !event.repeat && !isTyping(event)) { event.preventDefault(); editor.toggle(); return; }
   if (event.code === 'Escape' || event.code === 'KeyF' || isEditingField(event)) return;
-  if (event.target.closest?.('button') && ['Space', 'Enter'].includes(event.code)) return;
+  if (event.target.closest?.('button, summary') && ['Space', 'Enter'].includes(event.code)) return;
   if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
   if (event.code === 'KeyR') return restart();
@@ -136,9 +151,11 @@ window.addEventListener('keydown', (event) => {
   started = true;
   if (event.code === 'KeyE') {
     if (editor.active) return;
-    const image = player.falling ? null : props.interact(player);
+    const interaction = player.falling || !propsReady ? null : props.interact(player);
+    if (interaction?.type === 'blocked') return;
     actions.interact();
-    if (image) void popup.show(image);
+    if (interaction?.type === 'image') void popup.show(interaction.image);
+    if (interaction?.type === 'pickup') propHud.collect(interaction);
   }
   else if (event.code === 'Space') actions.requestJump();
   else keys.add(event.code);
@@ -179,8 +196,14 @@ function frame(now) {
     let move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     move = Math.sign(move);
     while (accumulator >= PHYSICS.fixedDt) {
+      const before = { x: player.x, y: player.y, respawnId: player.respawnId };
       actions.step(move, PHYSICS.fixedDt);
       accumulator -= PHYSICS.fixedDt;
+      if (propsReady && !editor.active && player.respawnId === before.respawnId && props.stepHazards(before, player, PHYSICS.fixedDt)) {
+        respawnPlayer(player, sceneAt(player.progress * WORLD.totalLength));
+        clearInput(); actions.reset(); accumulator = 0;
+        break;
+      }
       if (player.won) {
         finished = true; clearInput();
         break;
@@ -200,6 +223,7 @@ function frame(now) {
   camera.left = -viewWidth / 2; camera.right = viewWidth / 2;
   camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2;
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
   hero.position.set(player.x, player.y, 0);
   hero.rotation.z = Math.atan2(player.ny, player.nx) - Math.PI / 2;
   if (!paused) {
@@ -218,7 +242,15 @@ function frame(now) {
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
   updateArtwork(cameraPose.progress, viewWidth, viewHeight, framed.progress);
-  props.update(paused ? 0 : delta, player, framed.progress, viewWidth, viewHeight, editor.active, !finished && !popup.active);
+  props.update(paused ? 0 : delta, player, framed.progress, viewWidth, viewHeight, editor.active,
+    propsReady && !finished && !popup.active);
+  const prompt = props.prompt;
+  if (prompt) {
+    const point = worldAt(prompt.s, prompt.h);
+    promptPoint.set(point.x, point.y, 0).project(camera);
+    propHud.showPrompt({ x: (promptPoint.x + 1) * canvas.clientWidth / 2,
+      y: (1 - promptPoint.y) * canvas.clientHeight / 2, blocked: prompt.blocked });
+  } else propHud.showPrompt(null);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
   const percent = finished ? 100 : Math.min(99, Math.max(0, Math.floor(player.lapProgress / goalLapProgress * 100)));
@@ -235,7 +267,8 @@ function frame(now) {
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
     character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
-    activeProp: props.activeId, animatingProp: props.animatingId, collectedProps: props.collectedIds, imagePopup: popup.active,
+    activeProp: props.activeId, blockedProp: prompt?.blocked ?? false,
+    animatingProp: props.animatingId, collectedProps: props.collectedIds, imagePopup: popup.active,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

@@ -8,7 +8,7 @@
   inset-block-start: max(28px, env(safe-area-inset-top));
   inset-inline-start: 50%;
   transform: translateX(-50%);
-  width: min(286px, calc(100% - 32px));
+  width: min(320px, calc(100% - 32px));
   max-height: calc(100dvh - 56px);
   overflow: auto;
   display: grid;
@@ -35,6 +35,11 @@
   margin: 0;
   font-weight: 600;
   font-size: 15px;
+}
+
+.prop-editor-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .prop-editor-actions {
@@ -145,6 +150,47 @@
   min-width: 0;
   color: #52665c;
   overflow-wrap: anywhere;
+}
+
+.prop-editor-requirements {
+  border: 1px solid #293e3b26;
+  border-radius: 3px;
+}
+
+.prop-editor-requirements summary {
+  padding: 8px;
+  cursor: pointer;
+}
+
+.prop-editor .prop-editor-requirements p {
+  min-height: 0;
+  margin: 0 8px 6px;
+}
+
+.prop-editor-pickups {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  max-height: 110px;
+  margin: 0;
+  padding: 0 8px 8px;
+  overflow: auto;
+  border: 0;
+}
+
+.prop-editor-pickups label {
+  grid-template-columns: auto 1fr;
+  overflow-wrap: anywhere;
+}
+
+.prop-editor-pickups input {
+  margin: 0;
+  accent-color: #a34e34;
+}
+
+.prop-editor button[aria-pressed="true"] {
+  background: #f6e2d3;
+  border-color: #a34e34;
 }
 
 .prop-editor p {
