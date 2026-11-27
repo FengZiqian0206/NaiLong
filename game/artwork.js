@@ -78,16 +78,39 @@ const transitionPaint=`
     return smoothstep(left-feather,left,p)*(1.-smoothstep(right,right+feather,p));
   }
 
-  vec2 terraceStairs(vec2 uv,float x,float relative){
-    // Move just the painted edge of the paving onto each stair tread.
-    // Keep the trees, lamps and arch at their original proportions.
+  vec3 terraceStairs(vec3 paint,vec2 uv,float x,float relative,float worldHeight){
+    // Replace the thin painted curb before drawing the new stonework. The
+    // trees, reflected wall and arch never move at the step boundaries.
+    float apron=window(relative,-2.4,1.46,1.07);
+    if(apron<=0.) return paint;
     vec3 passed=step(-stairOffsets,vec3(relative));
-    float treadV=artworkWarp.y+(passed.x+passed.y+passed.z-3.)*stairRise/artworkWarp.w;
-    float nativeRow=mix(597.,580.,clamp((x-1927.5)/24.5,0.,1.));
-    float nativeV=1.-nativeRow/imageSize.y;
-    float apron=window(relative,-2.4,1.5,1.15);
-    uv.y+=(nativeV-treadV)*apron*(1.-smoothstep(.015,.072,abs(uv.y-treadV)));
-    return uv;
+    float tread=(passed.x+passed.y+passed.z-3.)*stairRise;
+    float depth=tread-worldHeight;
+    float nativeRow=mix(597.,578.5,clamp((x-1927.5)/25.5,0.,1.));
+    float rimOffset=(1.-uv.y)*imageSize.y-nativeRow;
+    float aa=clamp(fwidth(worldHeight)*.64,.009,.047);
+    float covered=smoothstep(-aa,aa,depth);
+    float oldCurb=window(rimOffset,-.5,14.,3.);
+    float safeRow=nativeRow-5.-max(0.,rimOffset)*.28;
+    vec3 wall=texture2D(art,vec2(uv.x,1.-safeRow/imageSize.y)).rgb;
+    float baseRow=nativeRow+18.+max(0.,rimOffset)*.44;
+    vec3 foundation=texture2D(art,vec2(uv.x,1.-baseRow/imageSize.y)).rgb;
+    vec3 scene=mix(paint,mix(wall,foundation,covered),oldCurb);
+
+    // Use the two existing stone textures for the stair, letting the cool
+    // curb pick up the same amber light as the landing at the arch.
+    float stoneDepth=clamp(depth*imageSize.y/artworkWarp.w,0.,17.);
+    float westX=clamp(x,1841.,1923.);
+    float eastX=1957.+(x-1841.)*.51;
+    vec3 westStone=texture2D(art,vec2(westX/imageSize.x,1.-(598.+stoneDepth)/imageSize.y)).rgb;
+    vec3 eastStone=texture2D(art,vec2(eastX/imageSize.x,1.-(579.5+stoneDepth)/imageSize.y)).rgb;
+    float lantern=smoothstep(1889.,1950.,x);
+    vec3 stone=mix(westStone,eastStone,lantern);
+    float nosing=1.-smoothstep(.014,.068,depth);
+    stone*=mix(.84,1.08,nosing);
+    float front=covered*(1.-smoothstep(.33,.68,depth));
+    scene=mix(scene,stone,front);
+    return mix(paint,scene,apron);
   }
 
   vec3 factoryApproach(vec3 paint,vec2 uv,float x,float worldHeight){
@@ -102,29 +125,35 @@ const transitionPaint=`
     vec3 masonry=texture2D(art,vec2(uv.x,1.-masonryRow/imageSize.y)).rgb;
     paint=mix(paint,masonry,lowerTread);
 
-    // The front rim runs at one height from the fence to the factory slab.
-    float span=window(x,1748.,1902.,40.);
-    float depth=max(0.,-worldHeight);
-    vec3 footing=texture2D(art,vec2(uv.x,1.-(703.+min(75.,depth*19.))/imageSize.y)).rgb;
-    float rim=window(worldHeight,-.17,-.025,.045);
-    float landing=smoothstep(1810.,1910.,x);
-    vec3 brick=mix(vec3(.105,.025,.027),vec3(.55,.09,.04),landing);
-    float reflection=.8+.16*sin(x*.14)+.08*sin(x*.72);
-    vec3 path=mix(footing,brick*reflection,rim);
-    return mix(paint,path,span*(1.-smoothstep(-.04,.022,worldHeight)));
+    // Carry the painted bank and the factory's rough slab through the join.
+    // The fence shadow dims reflections at the center of the new footing.
+    float depth=-worldHeight*imageSize.y/artworkWarp.w;
+    float bankX=1710.+(x-1740.)*.29;
+    float slabX=1918.+max(0.,x-1805.)*.45;
+    float irregularity=.57*sin(.23*x)+.38*sin(.61*x);
+    float bankRow=573.+depth+irregularity;
+    float slabRow=677.+depth+irregularity;
+    vec3 bank=texture2D(art,vec2(bankX/imageSize.x,1.-bankRow/imageSize.y)).rgb;
+    vec3 slab=texture2D(art,vec2(slabX/imageSize.x,1.-slabRow/imageSize.y)).rgb;
+    float landing=smoothstep(1835.,1940.,x);
+    vec3 path=mix(bank,slab,landing);
+    float gateShadow=window(x,1790.,1874.,54.)*(1.-smoothstep(8.,104.,depth));
+    path*=mix(vec3(1.),vec3(.23,.54,.66),gateShadow);
+    float footprint=window(x,1733.,1925.,47.)*smoothstep(-1.6,2.8,depth);
+    return mix(paint,path,footprint);
   }
 
   vec3 stationApproach(vec3 paint,vec2 uv,float x){
     float row=(1.-uv.y)*imageSize.y;
-    float rise=2.*smoothstep(517.,612.,x);
-    float curb=window(row-rise,547.,560.,3.)*window(x,501.,630.,39.);
-    vec3 cool=texture2D(art,vec2(497./imageSize.x,1.-(row-rise)/imageSize.y)).rgb;
-    vec3 warm=texture2D(art,vec2(672./imageSize.x,1.-(row-rise+3.)/imageSize.y)).rgb;
-    vec3 stone=mix(cool,warm,smoothstep(508.,648.,x));
-    paint=mix(paint,mix(stone,paint,.23),curb);
-    float railing=window(x,528.,648.,25.)*window(row,491.,548.,3.);
-    float warmLight=smoothstep(-.02,.135,paint.r-paint.b);
-    return mix(paint,paint*vec3(.68,.98,1.12),railing*warmLight*.78);
+    float roadRow=547.+3.*smoothstep(570.,785.,x);
+    float stationLight=(1.-smoothstep(551.,845.,x))*smoothstep(470.,521.,x);
+    float curb=window(row-roadRow,-2.,7.,5.);
+    float warmLight=smoothstep(-.04,.20,paint.r-paint.b);
+    // Keep cracks and the original grain in place as the warm light develops.
+    vec3 coolStone=paint*vec3(.18,1.13,1.27);
+    paint=mix(paint,coolStone,stationLight*curb*warmLight);
+    float railing=stationLight*window(row,485.,544.,7.);
+    return mix(paint,paint*vec3(.69,.99,1.15),railing*warmLight*.55);
   }
 
   vec4 paint(vec2 uv){
@@ -133,8 +162,8 @@ const transitionPaint=`
     float relative=artworkWarp.z;
     float worldHeight=(uv.y-artworkWarp.y)*artworkWarp.w;
     uv.y+=artworkWarp.x*(1.-smoothstep(.045,.25,abs(uv.y-artworkWarp.y)));
-    if(transitionIndex==1.) uv=terraceStairs(uv,x,relative);
     vec4 color=continuedPaint(art,uv,1.,garden);
+    if(transitionIndex==1.) color.rgb=terraceStairs(color.rgb,uv,x,relative,worldHeight);
     if(transitionIndex==2.) color.rgb=factoryApproach(color.rgb,uv,x,worldHeight);
     // The neighboring paintings use different exposure even at landmarks
     // they share. Match the common colors near each edge before the dissolve.

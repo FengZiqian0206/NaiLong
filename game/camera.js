@@ -38,8 +38,11 @@ export function updateCameraPose(pose, player, dt, viewHeight = 28, riding = fal
   const target = Math.atan2(ground.ny, ground.nx) - Math.PI / 2;
   const turn = Math.atan2(Math.sin(target - pose.angle), Math.cos(target - pose.angle));
   pose.angle += turn * (1 - Math.exp(-10 * dt));
-  const lift = riding ? height - WORLD.radius : Math.min(.7, Math.max(0, height - WORLD.radius) * .08);
-  pose.lift += (lift - pose.lift) * (1 - Math.exp(-5 * dt));
+  // A ride follows the object's position along the ring and keeps the boarding height.
+  if (!riding) {
+    const lift = Math.min(.7, Math.max(0, height - WORLD.radius) * .08);
+    pose.lift += (lift - pose.lift) * (1 - Math.exp(-5 * dt));
+  }
   return placeCamera(pose, ground, viewHeight);
 }
 

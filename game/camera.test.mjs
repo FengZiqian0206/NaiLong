@@ -164,5 +164,19 @@ for (const fps of [30, 60]) {
   const radialFall = createCameraPose(playerAt(0));
   updateCameraPose(radialFall, playerAt(0, -3), dt);
   assert.ok(radialFall.fallLocked, 'radial depth also protects samples without a physics fall flag');
+
+  const boarding = playerAt(-1, WORLD.radius + 4), ride = createCameraPose(boarding);
+  const boarded = { ...ride };
+  for (const height of [26, -9]) updateCameraPose(ride, playerAt(-1, height), 1, 28, true);
+  assert.ok(Math.hypot(ride.x - boarded.x, ride.y - boarded.y) < 1e-10);
+  assert.equal(ride.lift, boarded.lift, 'going straight up or down leaves the ride camera still');
+  const ridden = playerAt(-1.2, -9);
+  updateCameraPose(ride, ridden, dt, 28, true);
+  assert.equal(ride.progress, nearestPath(ridden.x, ridden.y).progress);
+  assert.equal(ride.lift, boarded.lift, 'travel around the ring does not alter the boarding height');
+  assert.equal(ride.fallLocked, false, 'a ride below the road can still be followed horizontally');
+  checkFollow(ride, ridden);
+  updateCameraPose(ride, playerAt(-1.2), dt);
+  assert.ok(ride.lift < boarded.lift, 'normal vertical framing resumes after leaving the object');
 }
 console.log(JSON.stringify({ ok: true, routes }, null, 2));

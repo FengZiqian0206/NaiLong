@@ -1,9 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127c';
-import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127b';
+import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127d';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127c';
-import { addArtwork } from './artwork.js?v=20261127c';
+import { addArtwork } from './artwork.js?v=20261127d';
 import { createCharacter } from './character.js?v=20261127b';
 import { createCharacterActions } from './character-actions.js?v=20261127c';
 import { createFeedback } from './feedback.js?v=20261127b';
