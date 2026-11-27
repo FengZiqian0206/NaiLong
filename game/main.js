@@ -1,18 +1,19 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127';
-import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127';
+import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127b';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
 import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127';
-import { addArtwork } from './artwork.js?v=20261127';
-import { createCharacter } from './character.js?v=20261127';
+import { addArtwork } from './artwork.js?v=20261127b';
+import { createCharacter } from './character.js?v=20261127b';
 import { createCharacterActions } from './character-actions.js?v=20261127';
-import { createFeedback } from './feedback.js?v=20261124c';
-import { createProps, propPoint } from './props.js?v=20261127';
-import { createPropEditor } from './prop-editor.js?v=20261127';
+import { createFeedback } from './feedback.js?v=20261127b';
+import { createProps, propPoint } from './props.js?v=20261127b';
+import { createPropEditor } from './prop-editor.js?v=20261127b';
 import { createPropPopup } from './prop-popup.js?v=20261126b';
-import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127';
-import { createPropHud } from './prop-hud.js?v=20261127';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127b';
+import { createPropHud } from './prop-hud.js?v=20261127b';
 import { createColliderPreview } from './collider-preview.js?v=20261127';
+import { createMotionPreview } from './motion-preview.js?v=20261127b';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -103,6 +104,7 @@ const editor = createPropEditor({
   previewZone: props.previewZone,
   setCollisionBlocks: setCustomColliders,
   previewCollisionBlocks: createColliderPreview(scene),
+  previewMotion: createMotionPreview(scene),
   async loadSharedProps() {
     const shared = await loadSharedProps();
     if (shared.includesDefaults) return shared;
@@ -127,6 +129,24 @@ const editor = createPropEditor({
 });
 let propsReady = false;
 void editor.ready.then(() => { propsReady = true; });
+
+function followRide(position) {
+  const anchor = worldAt(position.s);
+  const travel = anchor.progress - player.progress;
+  Object.assign(player, {
+    x: position.x, y: position.y, vx: 0, vy: 0, nx: anchor.nx, ny: anchor.ny,
+    tx: -anchor.ny, ty: anchor.nx, progress: anchor.progress,
+    lapProgress: player.lapProgress + travel - Math.round(travel),
+    grounded: false, groundId: null, airJumpUsed: false, falling: false,
+  });
+}
+
+function disembark(position) {
+  if (!position) return;
+  followRide(position);
+  actions.interact();
+}
+
 function restart() {
   resetPlayer(player); clearInput();
   actions.reset();
@@ -146,7 +166,12 @@ window.addEventListener('keydown', (event) => {
 canvas.addEventListener('pointerdown', () => { void feedback.unlock(); });
 window.addEventListener('keydown', (event) => {
   if (popup.active || event.altKey || event.ctrlKey || event.metaKey) return;
-  if (event.code === 'KeyP' && !event.repeat && !isTyping(event)) { event.preventDefault(); editor.toggle(); return; }
+  if (event.code === 'KeyP' && !event.repeat && !isTyping(event)) {
+    event.preventDefault();
+    if (props.ridingId) disembark(props.exitRide());
+    editor.toggle();
+    return;
+  }
   if (event.code === 'Escape' || event.code === 'KeyF' || isEditingField(event)) return;
   if (event.target.closest?.('button, summary') && ['Space', 'Enter'].includes(event.code)) return;
   if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
@@ -158,13 +183,20 @@ window.addEventListener('keydown', (event) => {
   started = true;
   if (event.code === 'KeyE') {
     if (editor.active) return;
+    if (props.ridingId) { disembark(props.exitRide()); return; }
     const interaction = player.falling || !propsReady ? null : props.interact(player);
     if (interaction?.type === 'blocked') return;
+    if (interaction?.type === 'ride') {
+      actions.cancelJump();
+      followRide(interaction);
+    }
     actions.interact();
     if (interaction?.type === 'image') void popup.show(interaction.image);
     if (interaction?.type === 'pickup') propHud.collect(interaction);
   }
-  else if (event.code === 'Space') actions.requestJump();
+  else if (event.code === 'Space') {
+    if (!props.ridingId) actions.requestJump();
+  }
   else keys.add(event.code);
 });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
@@ -200,12 +232,17 @@ function frame(now) {
   feedback.setGlowColor(glowColor);
   if (propsReady && !paused && !finished && !popup.active && started) {
     accumulator += delta;
-    let move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    move = Math.sign(move);
+    const move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     while (accumulator >= PHYSICS.fixedDt) {
+      accumulator -= PHYSICS.fixedDt;
+      const ride = props.stepRide(move, PHYSICS.fixedDt);
+      if (ride) {
+        if (ride.finished) disembark(ride);
+        else followRide(ride);
+        continue;
+      }
       const before = { x: player.x, y: player.y, respawnId: player.respawnId };
       actions.step(move, PHYSICS.fixedDt);
-      accumulator -= PHYSICS.fixedDt;
       if (!editor.active && player.respawnId === before.respawnId && props.stepHazards(before, player, PHYSICS.fixedDt)) {
         respawnPlayer(player, sceneAt(player.progress * WORLD.totalLength));
         clearInput(); actions.reset(); accumulator = 0;
@@ -221,7 +258,8 @@ function frame(now) {
   const targetHeight = wideView ? Math.max(56, 78 / aspect) : Math.max(28, 40 / aspect);
   const easing = 1 - Math.exp(-delta * 5);
   viewHeight += (targetHeight - viewHeight) * easing;
-  updateCameraPose(cameraPose, player, delta, viewHeight);
+  const riding = Boolean(props.ridingId);
+  updateCameraPose(cameraPose, player, delta, viewHeight, riding);
   const routePosition = player.progress * WORLD.totalLength;
   const viewWidth = viewHeight * aspect;
   const framed = frameRouteEnds(cameraPose, viewWidth, viewHeight, endProgress);
@@ -233,6 +271,7 @@ function frame(now) {
   camera.updateMatrixWorld();
   hero.position.set(player.x, player.y, 0);
   hero.rotation.z = Math.atan2(player.ny, player.nx) - Math.PI / 2;
+  hero.visible = !riding;
   if (!paused) {
     const tangentSpeed = player.vx * player.ny - player.vy * player.nx;
     character.update(delta, {
@@ -241,10 +280,10 @@ function frame(now) {
       verticalSpeed: player.vx * player.nx + player.vy * player.ny,
       glowColor, glowStrength,
     });
-    feedback.update(delta, { player, idle: character.state === 'idle' && player.grounded });
+    feedback.update(delta, { player: riding ? undefined : player, idle: character.state === 'idle' && player.grounded });
   }
   arrow.position.copy(hero.position); arrow.rotation.z = hero.rotation.z;
-  arrow.visible = !player.grounded;
+  arrow.visible = !riding && !player.grounded;
   const pulse = 1 + Math.sin(now * .002) * .12;
   goal.scale.setScalar(pulse); goalCore.scale.setScalar(2 - pulse);
   goal.visible = goalCore.visible = player.lapProgress > .85;
@@ -256,7 +295,7 @@ function frame(now) {
     const point = worldAt(prompt.s, prompt.h);
     promptPoint.set(point.x, point.y, 0).project(camera);
     propHud.showPrompt({ x: (promptPoint.x + 1) * canvas.clientWidth / 2,
-      y: (1 - promptPoint.y) * canvas.clientHeight / 2, blocked: prompt.blocked });
+      y: (1 - promptPoint.y) * canvas.clientHeight / 2, blocked: prompt.blocked, riding: prompt.riding });
   } else propHud.showPrompt(null);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
@@ -274,7 +313,7 @@ function frame(now) {
     scene:sceneAt(routePosition)+1,sceneLength:SCENE_LENGTH,panels:PANELS.length,
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
     character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
-    activeProp: props.activeId, blockedProp: prompt?.blocked ?? false,
+    activeProp: props.activeId, blockedProp: prompt?.blocked ?? false, riding: props.ridingId ?? null,
     animatingProp: props.animatingId, collectedProps: props.collectedIds, imagePopup: popup.active,
   });
   renderer.render(scene, camera);

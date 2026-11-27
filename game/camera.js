@@ -16,12 +16,12 @@ export function createCameraPose(player, viewHeight = 28) {
     progress: ground.progress, respawnId: player.respawnId ?? 0 };
   return placeCamera(pose, ground, viewHeight);
 }
-export function updateCameraPose(pose, player, dt, viewHeight = 28) {
+export function updateCameraPose(pose, player, dt, viewHeight = 28, riding = false) {
   if ((player.respawnId ?? 0) !== pose.respawnId) {
     return Object.assign(pose, createCameraPose(player, viewHeight));
   }
   const height = Math.hypot(player.x, player.y) - WORLD.ringRadius;
-  if (player.falling || height < -2.6) { pose.fallLocked = true; return pose; }
+  if (!riding && (player.falling || height < -2.6)) { pose.fallLocked = true; return pose; }
   const playerGround = nearestPath(player.x, player.y);
   if (pose.fallLocked) {
     pose.fallLocked = false;
@@ -38,7 +38,7 @@ export function updateCameraPose(pose, player, dt, viewHeight = 28) {
   const target = Math.atan2(ground.ny, ground.nx) - Math.PI / 2;
   const turn = Math.atan2(Math.sin(target - pose.angle), Math.cos(target - pose.angle));
   pose.angle += turn * (1 - Math.exp(-10 * dt));
-  const lift = Math.min(.7, Math.max(0, height - WORLD.radius) * .08);
+  const lift = riding ? height - WORLD.radius : Math.min(.7, Math.max(0, height - WORLD.radius) * .08);
   pose.lift += (lift - pose.lift) * (1 - Math.exp(-5 * dt));
   return placeCamera(pose, ground, viewHeight);
 }

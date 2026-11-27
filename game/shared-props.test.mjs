@@ -39,7 +39,9 @@ test('global publishing preserves editable originals, dependencies and zones and
     behavior: 'image', interactive: true, blob: png, popupImage: png, popupName: '说明.png',
     requires: ['key'], fallZone: { s: 4, h: 1, width: 3, height: 2 } },
   { id: 'key', asset: 'key', name: 'Key', nameZh: '钥匙', s: 9, h: 2, width: 2, height: 1,
-    behavior: 'disappear', interactive: true }];
+    behavior: 'disappear', interactive: true },
+  { id: 'ride', name: 'Lift', s: 40, h: 4, width: 2, height: 1, behavior: 'image', interactive: true,
+    blob: png, motion: { pivot: {s: 41, h: 3}, path: [{s: 40, h: 4}, {s: 42.6, h: 11}, {s: 48, h: 7}] } }];
   const blocks = [{id: 'test-block', s: 47, h: 3.2, width: 8.4, height: .28}];
   const published = await publishSharedProps(objects, 'initial', token, blocks);
   const loaded = await loadSharedProps();
@@ -50,6 +52,8 @@ test('global publishing preserves editable originals, dependencies and zones and
   assert.deepEqual(loaded.props[0].requires, ['key']);
   assert.deepEqual(loaded.props[0].fallZone, objects[0].fallZone);
   assert.equal(loaded.props[1].asset, 'key');
+  assert.deepEqual(loaded.props[2].motion, objects[2].motion);
+  assert.equal(loaded.props[2].popupImage, undefined, 'a movement object does not need a popup');
   assert.equal(document.props[1].sprite, undefined, 'built-in PNGs are reused without copying the image into the layout');
   assert.deepEqual(await loaded.props[0].popupImage.arrayBuffer(), await png.arrayBuffer());
   assert.equal(JSON.stringify(document).includes(token), false);

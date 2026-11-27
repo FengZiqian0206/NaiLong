@@ -1,4 +1,5 @@
 import { WORLD } from './world.js?v=20261123b';
+import { normalizeMotion } from './prop-motion.js?v=20261127b';
 
 const repository = 'https://api.github.com/repos/FengZiqian0206/NaiLong';
 const manifestPath = 'game/assets/shared-props.json';
@@ -55,7 +56,7 @@ function layoutRecords(props) {
   if (!Array.isArray(props) || props.length > 128) throw new Error('A shared layout can contain up to 128 objects.');
   const ids = new Set();
   return props.map(prop => {
-    const { id, name, nameZh, asset, s, h, width, height, interactive, behavior, popupName, requires, fallZone } = prop ?? {};
+    const { id, name, nameZh, asset, s, h, width, height, interactive, behavior, popupName, requires, fallZone, motion } = prop ?? {};
     if (typeof id !== 'string' || !/^[a-z0-9_-]{1,80}$/i.test(id) || ids.has(id) ||
       ![s, h, width].every(Number.isFinite) || width < .35 || width > 18 ||
       (height !== undefined && (!Number.isFinite(height) || height <= 0))) {
@@ -72,7 +73,7 @@ function layoutRecords(props) {
       asset: asset === id ? asset : undefined, s, h, width, height,
       interactive: interactive !== false, behavior: modes.includes(behavior) ? behavior : 'bounce',
       popupName: typeof popupName === 'string' ? popupName.slice(0, 255) : undefined,
-      requires: dependencyIds, fallZone: zone };
+      requires: dependencyIds, fallZone: zone, motion: normalizeMotion(motion) };
   });
 }
 
@@ -104,7 +105,7 @@ async function readLayout(response) {
   const { revision, props, blocks, includesDefaults } = parseLayout(await response.text());
   return { revision, blocks, includesDefaults, props: layoutRecords(props).map((prop, index) => {
     const { sprite, popup } = props[index];
-    if (prop.interactive && prop.behavior === 'image' && !popup) throw new Error('A shared image interaction has no image.');
+    if (prop.interactive && !prop.motion && prop.behavior === 'image' && !popup) throw new Error('A shared image interaction has no image.');
     return { ...prop, blob: prop.asset ? undefined : storedImage(sprite, ['image/png']),
       popupImage: popup ? storedImage(popup, photoTypes) : undefined };
   }) };
@@ -152,7 +153,7 @@ export async function publishSharedProps(definitions, expectedRevision, token, c
 
   const props = await Promise.all(records.map(async (prop, index) => {
     const { blob, popupImage } = definitions[index];
-    if (prop.interactive && prop.behavior === 'image' && !popupImage) throw new Error('Choose a popup image before publishing.');
+    if (prop.interactive && !prop.motion && prop.behavior === 'image' && !popupImage) throw new Error('Choose a popup image before publishing.');
     return { ...prop, sprite: prop.asset ? undefined : await serializeImage(blob, ['image/png']),
       popup: popupImage ? await serializeImage(popupImage, photoTypes) : undefined };
   }));

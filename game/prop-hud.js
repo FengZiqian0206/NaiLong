@@ -2,7 +2,7 @@ export function createPropHud(root) {
   const doc = root.ownerDocument;
   const stylesheet = doc.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-hud.css?v=20261127', import.meta.url);
+  stylesheet.href = new URL('./prop-hud.css?v=20261127b', import.meta.url);
   doc.head.append(stylesheet);
 
   const inventory = doc.createElement('ul');
@@ -46,16 +46,24 @@ export function createPropHud(root) {
       prompt.hidden = true;
     },
     showPrompt(point) {
-      const { x, y, blocked } = point ?? {};
+      const { x, y, blocked, riding } = point ?? {};
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         prompt.hidden = true;
         return;
       }
-      const key = blocked ? '×' : 'E';
-      if (prompt.textContent !== key) {
-        prompt.textContent = key;
+      const mode = riding ? 'ride' : blocked ? 'blocked' : 'interact';
+      if (prompt.dataset.mode !== mode) {
+        prompt.dataset.mode = mode;
         prompt.classList.toggle('prop-prompt-blocked', Boolean(blocked));
-        prompt.setAttribute('aria-label', blocked ? 'Required item missing' : 'Press E to interact');
+        if (riding) {
+          prompt.replaceChildren(...['A', 'D', 'E'].map(key => {
+            const cap = doc.createElement('kbd');
+            cap.textContent = key;
+            return cap;
+          }));
+        } else prompt.textContent = blocked ? '×' : 'E';
+        prompt.setAttribute('aria-label', riding ? 'Press A or D to move. Press E to exit.'
+          : blocked ? 'Required item missing' : 'Press E to interact');
       }
       prompt.style.setProperty('--screen-x', `${x}px`);
       prompt.style.setProperty('--screen-y', `${y}px`);

@@ -40,7 +40,7 @@
   --right-clearance: 16px;
   position: absolute;
   z-index: 1;
-  inset-inline-start: clamp(calc(16px + env(safe-area-inset-left)), var(--screen-x), calc(100% - var(--right-clearance) - env(safe-area-inset-right)));
+  inset-inline-start: clamp(calc(var(--side-clearance, 16px) + env(safe-area-inset-left)), var(--screen-x), calc(100% - var(--right-clearance) - env(safe-area-inset-right)));
   inset-block-start: clamp(calc(36px + env(safe-area-inset-top)), var(--screen-y), calc(100% - 10px - env(safe-area-inset-bottom)));
   width: var(--size);
   height: var(--size);
@@ -65,6 +65,35 @@
   background: #ffe7df;
   color: #ab3426;
   font: 700 21px/.8 system-ui, sans-serif;
+}
+
+.prop-prompt[data-mode="ride"] {
+  --side-clearance: 45px;
+  --right-clearance: 45px;
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#game:has(.prop-inventory:not([hidden])) .prop-prompt[data-mode="ride"] {
+  --right-clearance: 102px;
+}
+
+.prop-prompt[data-mode="ride"][hidden] { display: none; }
+
+.prop-prompt kbd {
+  display: grid;
+  place-items: center;
+  width: var(--size);
+  height: var(--size);
+  border: 1px solid #6c5a36b3;
+  border-radius: 4px;
+  background: #fff2ce;
+  box-shadow: 0 2px 5px #21140959;
+  font: inherit;
 }
 
 @media (max-width: 760px) {

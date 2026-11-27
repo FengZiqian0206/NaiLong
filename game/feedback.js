@@ -140,7 +140,7 @@ const defaultGlow = new THREE.Color('#ffc7a2');
 
 export function createFeedback(scene, radius) {
   const sound = createSound();
-  const capacity = 80, slots = Array.from({ length: capacity }, () => ({ life: 0, tint: new THREE.Color() }));
+  const capacity = 112, slots = Array.from({ length: capacity }, () => ({ life: 0, tint: new THREE.Color() }));
   const positions = new Float32Array(capacity * 12);
   const colors = new Float32Array(capacity * 12);
   const opacity = new Float32Array(capacity * 4);
@@ -195,8 +195,12 @@ export function createFeedback(scene, radius) {
           color*=mix(.29,1.,1.-smoothstep(.34,.68,p.y));
         }
         if(form>4.5) {
-          a=.44*(1.-smoothstep(.16,1.,r))+.56*(1.-smoothstep(.12,.43,r));
+          a=.49*(1.-smoothstep(.16,1.,r))+.51*(1.-smoothstep(.12,.45,r));
           color=rgb;
+        }
+        if(form>5.5) {
+          float rays=1.-smoothstep(.35,1.,p.x+p.y+4.*min(p.x,p.y));
+          a=max(a*.62,rays);
         }
         gl_FragColor=vec4(color,a*alpha);
         #include <colorspace_fragment>
@@ -211,8 +215,8 @@ export function createFeedback(scene, radius) {
   const glow = defaultGlow.clone(), lightGlow = new THREE.Color(), dustGlow = new THREE.Color();
   function setGlowColor(color) {
     glow.copy(color);
-    lightGlow.copy(glow).lerp(cream, .66);
-    dustGlow.copy(sand).lerp(glow, .46);
+    lightGlow.copy(glow).lerp(cream, .46);
+    dustGlow.copy(sand).lerp(glow, .59);
   }
   setGlowColor(defaultGlow);
   let next = 0, live = 0, idleLive = 0, idleWait = .45;
@@ -298,14 +302,17 @@ export function createFeedback(scene, radius) {
   }
   function update(dt, { player, idle, glowColor } = {}) {
     if (glowColor) setGlowColor(glowColor);
-    if (idle && player) {
+    if (player && !player.falling) {
       idleWait -= dt;
       if (idleWait <= 0) {
         const side = random() < .5 ? -1 : 1;
-        particle(player, side * (.29 + random() * .37), -.20 + random() * .72,
-          side * (.16 + random() * .24), .48 + random() * .28,
-          .09 + random() * .068, 2.0 + random() * .58, 5, random() < .55 ? lightGlow : glow, .74, -.12);
-        idleWait += .49 + random() * .36;
+        const spark = random() < .28;
+        const travel = player.vx * player.ny - player.vy * player.nx;
+        particle(player, side * (.34 + random() * .62), -.32 + random() * 1.12,
+          side * (.17 + random() * .25) + travel * .19, .42 + random() * .35,
+          .115 + random() * .11, (idle ? 2.15 : 1.3) + random() * .55,
+          spark ? 6 : 5, random() < .43 ? lightGlow : glow, .96, -.16);
+        idleWait += (idle ? .21 : .31) + random() * .11;
       }
     } else {
       idleWait = .45;
@@ -318,15 +325,17 @@ export function createFeedback(scene, radius) {
       if (item.age >= item.life) { item.life = 0; continue; }
       const f = item.age / item.life;
       const { nx, ny, type, age, tint } = item;
-      const drift = type === 5 ? Math.sin(age * 3.5 + item.x) * age * .075 : 0;
+      const mote = type >= 5;
+      const drift = mote ? Math.sin(age * 3.5 + item.x) * age * .11 : 0;
       const side = item.vx * age * (1 - .2 * f) + drift;
       const height = item.vy * age - (type === 1 ? .39 * age * age : 0);
       const x = item.x + side * ny + height * nx;
       const y = item.y - side * nx + height * ny;
       const width = item.width * (1 + item.growth * f);
       const tall = width * (type === 0 ? .67 : type === 3 ? .34 : type === 4 ? .19 : 1);
-      const entrance = type === 5 ? Math.min(1, f * 6) : 1;
-      const a = item.alpha * entrance * (1 - f) ** (type === 0 ? 1.35 : .88);
+      const entrance = mote ? Math.min(1, f * 8) : 1;
+      const twinkle = type === 6 ? .79 + .21 * Math.sin(age * 8 + item.x) : 1;
+      const a = item.alpha * entrance * twinkle * (1 - f) ** (type === 0 ? 1.35 : .88);
       for (let corner = 0; corner < 4; corner++) {
         const v = live * 4 + corner;
         const dx = (corner % 2 === 0 ? -1 : 1) * width;
@@ -341,7 +350,7 @@ export function createFeedback(scene, radius) {
         shape[v] = type;
       }
       live++;
-      if (type === 5) idleLive++;
+      if (mote) idleLive++;
     }
     mesh.visible = live > 0;
     geometry.setDrawRange(0, live * 6);

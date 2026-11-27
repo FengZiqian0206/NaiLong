@@ -2,9 +2,12 @@ import * as THREE from '../vendor/three.module.min.js';
 import {WORLD} from './world.js?v=20261123b';
 import {PANELS,TRANSITIONS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127';
 
-const edgeBlend=1.2;
+// Arc-length overlaps. A longer dissolve in matching scenery softens the join
+// without having to stretch the transition or repeat its landmarks.
+const edgeBlends=[[1.2,1.2],[1.2,1.65],[4.1,1.2],[3.0,2.45],[4.0,1.2],[0,0]];
+const staggeredPanels=new Set([2,3,4,5]);
 // Keep the illustrated curbs/steps through the first few columns of their destination.
-const panelLead=[0,0,1.7,2.6,0,0];
+const panelLead=[0,0,1.65,2.6,.4,0];
 // Pixel landmarks measured in the transition plate and its neighboring level.
 // Keep these local registrations through the blend so each prop appears once.
 const registrations=[
@@ -22,9 +25,15 @@ const registrations=[
 // Pixel rows along the actual path through the new illustrations. Leaving the
 // stairs on the back of the 5–6 crossing in the art keeps the front rim walkable.
 const roadProfiles={
-  2:[[605,574],[760,573],[1715,575],[1765,576],[1804,609],[1827,613]],
-  3:[[610,666],[1424,666],[1538,652],[1665,644],[1740,626],[1785,608]],
+  2:[[605,574],[760,573],[1660,575],[1750,589],[1805,615]],
+  3:[[706,666],[1424,666],[1538,652],[1665,644],[1740,626]],
   4:[[602,550],[1060,553],[1300,555],[1560,555]],
+};
+// Lift the distant scenery only across broad spans. The low foreground can
+// still follow the walking surface, including the approach to the red stairs.
+const sceneryProfiles={
+  2:[[740,574],[1510,575]],
+  3:[[770,666],[1370,666]],
 };
 function rowAlongRoad(anchors,x) {
   if(x<=anchors[0][0]) return anchors[0][1];
@@ -64,6 +73,7 @@ const transitionPaint=`
   ${edgePaint}
   vec4 paint(vec2 uv){
     uv.y=uv.y*(1.+2.*overscan)-overscan;
+    uv.y+=artworkWarp.x*(1.-smoothstep(.045,.25,abs(uv.y-artworkWarp.y)));
     vec4 color=continuedPaint(art,uv,1.,garden);
     // The neighboring paintings use different exposure even at landmarks
     // they share. Match the common colors near each edge before the dissolve.
@@ -94,7 +104,7 @@ export async function addArtwork(scene) {
     if(isColor) texture.colorSpace=THREE.SRGBColorSpace;
     return texture;
   }
-  const maskedScenes=new Set([0,1,3]);
+  const maskedScenes=new Set([0,1]);
   const [maps,bridges]=await Promise.all([
     Promise.all(PANELS.map(async panel=>{
       if(!panel.image) return null;
@@ -108,25 +118,28 @@ export async function addArtwork(scene) {
   ]);
   const meshes=[];
   function meshStrip(start,end,column,uniforms,fragment,renderOrder=0) {
-    const vertices=[],uv=[],indices=[];
+    const vertices=[],uv=[],warp=[],indices=[];
     const columns=Math.ceil((end-start)/.25);
     for(let i=0;i<=columns;i++) {
       const t=i/columns,s=start+(end-start)*t;
-      const [bottom,top,u=t]=column(s);
+      const [bottom,top,u=t,shift=0,floor=0]=column(s);
       const low=worldAt(s,bottom),high=worldAt(s,top);
       vertices.push(low.x,low.y,-2,high.x,high.y,-2);
       uv.push(u,0,u,1);
+      warp.push(shift,floor,shift,floor);
       if(i<columns) indices.push(i*2,i*2+2,i*2+1,i*2+1,i*2+2,i*2+3);
     }
     const geometry=new THREE.BufferGeometry();
     geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
     geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+    geometry.setAttribute('paintWarp',new THREE.Float32BufferAttribute(warp,2));
     geometry.setIndex(indices);
     const material=new THREE.ShaderMaterial({
       uniforms,
-      vertexShader:`varying vec2 artworkUV;
-        void main(){artworkUV=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader:`varying vec2 artworkUV;
+      vertexShader:`attribute vec2 paintWarp;
+        varying vec2 artworkUV,artworkWarp;
+        void main(){artworkUV=uv;artworkWarp=paintWarp;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+      fragmentShader:`varying vec2 artworkUV,artworkWarp;
         ${fragment}
         void main(){
           gl_FragColor=paint(artworkUV);
@@ -170,21 +183,28 @@ export async function addArtwork(scene) {
       mask:{value:map.mask??map.art},
       hasMask:{value:Number(Boolean(map.mask))},
       sourceBand:{value:new THREE.Vector2(1+(above+below)/artHeight,-below/artHeight)},
-      fadeIn:{value:previous.image?edgeBlend/length:0},
+      fadeIn:{value:edgeBlends[previous.index][1]/length},
       fadeDelay:{value:panelLead[index]/length},
-      fadeOut:{value:next.image?edgeBlend/length:0},
+      fadeOut:{value:edgeBlends[next.index][0]/length},
+      stagger:{value:Number(staggeredPanels.has(index))},
       floorUV:{value:1-baseline/source.height},
       garden:{value:Number(index===PANELS.length-1)},
     },`
       uniform sampler2D art,mask;
-      uniform float hasMask,fadeIn,fadeDelay,fadeOut,floorUV,garden;
+      uniform float hasMask,fadeIn,fadeDelay,fadeOut,stagger,floorUV,garden;
       uniform vec2 sourceBand;
       ${edgePaint}
       vec4 paint(vec2 uv){
         uv.y=uv.y*sourceBand.x+sourceBand.y;
         vec4 color=continuedPaint(art,uv,smoothstep(.46,.81,uv.x),garden);
-        float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+fadeIn,uv.x):1.)*
-          (fadeOut>0.?smoothstep(0.,fadeOut,1.-uv.x):1.);
+        // Offset the dissolve slightly with height so it doesn't read as a
+        // vertical stripe on textured trunks or flat painted masonry.
+        float row=clamp(uv.y,0.,1.);
+        float weave=.33*(row-.45)+.09*sin(row*14.);
+        float incomingWidth=fadeIn*(1.+stagger*weave);
+        float outgoingWidth=fadeOut*(1.-stagger*weave);
+        float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+incomingWidth,uv.x):1.)*
+          (fadeOut>0.?smoothstep(0.,outgoingWidth,1.-uv.x):1.);
         float black=min(texture2D(mask,uv).r,
           min(texture2D(mask,uv+vec2(0.,.004)).r,texture2D(mask,uv-vec2(0.,.004)).r));
         // Raised platforms retain their visible contact surfaces; the two
@@ -217,7 +237,9 @@ export async function addArtwork(scene) {
     const extra=panelLead[index+1];
     const overscan=index===0?1.65:0;
     const road=roadProfiles[index]&&[[entry.x,startRow],...roadProfiles[index],[exit.x,endRow]];
-    meshStrip(start-edgeBlend,end+extra+edgeBlend,s=>{
+    const scenery=sceneryProfiles[index]&&[[entry.x,startRow],...sceneryProfiles[index],[exit.x,endRow]];
+    const [leftBlend,rightBlend]=edgeBlends[index];
+    meshStrip(start-leftBlend*1.28,end+extra+rightBlend*1.28,s=>{
       const t=THREE.MathUtils.clamp((s-start)/length,0,1);
       // Preserve the scale at each join and distribute the width adjustment
       // through the unique middle of the plate.
@@ -232,16 +254,22 @@ export async function addArtwork(scene) {
       if(road) {
         roadRow=rowAlongRoad(road,sourceX);
       } else if(index===1) {
-        // The pale curb stays at row 598 up to x=1928 and rises to the
-        // fairground pavement at x=1949. Follow that painted edge directly.
-        const curb=THREE.MathUtils.lerp(roadIn,581,THREE.MathUtils.smoothstep(sourceX,1928,1949));
-        roadRow=THREE.MathUtils.lerp(curb,endRow,THREE.MathUtils.smoothstep(sourceX,1949,1960));
+        // Preserve the straight, diagonal curb painted at the arch. Transfer
+        // the row height gradually before it reaches the join.
+        roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-21,end));
       } else {
         roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-5,end));
       }
-      const ceiling=top(s)+roadRow*verticalScale;
       const artHeight=height*verticalScale;
-      return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width];
+      const trackHeight=top(s);
+      const broadT=THREE.MathUtils.smoothstep(sourceX,scenery?.at(-2)[0]??entry.x,exit.x);
+      const sceneryHeight=THREE.MathUtils.lerp(exitTop,entryTop,broadT);
+      const sceneryRow=scenery?rowAlongRoad(scenery,sourceX):roadRow;
+      const ceiling=(scenery?sceneryHeight:trackHeight)+sceneryRow*verticalScale;
+      const roadShift=(ceiling-trackHeight-roadRow*verticalScale)/artHeight;
+      const safeShift=THREE.MathUtils.clamp(roadShift,-.085,.085);
+      const floor=1+(trackHeight-ceiling)/artHeight;
+      return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width,safeShift,floor];
     },{
       art:{value:bridges[index]},
       overscan:{value:overscan},

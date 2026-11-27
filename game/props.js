@@ -2,6 +2,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, nearestPath } from './world.js?v=20261123b';
 import { PANELS, worldAt } from './scenes.js?v=20261127';
 import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127';
+import { createPropMotion, normalizeMotion } from './prop-motion.js?v=20261127b';
 
 const { ringRadius, totalLength } = WORLD;
 const reach = 3.25;
@@ -9,9 +10,12 @@ const bounceDuration = .43;
 const fadeDuration = .26;
 const padding = .36;
 const behaviors = new Set(['bounce', 'disappear', 'image']);
-const wrap = s => THREE.MathUtils.euclideanModulo(s, totalLength);
-const routeDelta = (a, b) => wrap(a - b + totalLength / 2) - totalLength / 2;
-const runtimeHeight = prop => prop.fall?.height ?? prop.h;
+const wrap = s => s >= 0 && s < totalLength ? s : THREE.MathUtils.euclideanModulo(s, totalLength);
+const routeDelta = (a, b) => {
+  const delta = a - b;
+  return delta - totalLength * Math.round(delta / totalLength);
+};
+const runtimePose = prop => prop.travel?.pose ?? (prop.fall ? { s: prop.s, h: prop.fall.height } : prop);
 const homeNames = {
   backpack: ['Backpack', '背包'], 'family-photo': ['Family photo', '全家福'], key: ['Key', '钥匙'],
   'storage-door': ['Storage door', '柜门'], dog: ['Dog', '小狗'], bell: ['Bell', '铃铛'],
@@ -22,20 +26,27 @@ export function propPoint(x, y) {
   return { s: nearestPath(x, y).progress * totalLength, h: Math.hypot(x, y) - ringRadius };
 }
 
-function propDistance(point, prop, height = runtimeHeight(prop)) {
-  const dx = Math.max(0, Math.abs(routeDelta(point.s, prop.s)) - prop.width / 2);
-  const dy = Math.max(0, Math.abs(point.h - height) - prop.height / 2);
+function propDistance(point, prop, pose = runtimePose(prop)) {
   // Tangential distance is measured at the prop's height above the ring.
-  return Math.hypot(dx * Math.max(.05, 1 + height / ringRadius), dy);
+  const scale = Math.max(.05, 1 + pose.h / ringRadius);
+  let dx = routeDelta(point.s, pose.s) * scale, dy = point.h - pose.h;
+  if (pose.turn) {
+    const angle = (prop.s - pose.s) / ringRadius + pose.turn;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    [dx, dy] = [cos * dx - sin * dy, sin * dx + cos * dy];
+  }
+  return Math.hypot(Math.max(0, Math.abs(dx) - prop.width * scale / 2),
+    Math.max(0, Math.abs(dy) - prop.height / 2));
 }
 
 function nearbyProp(props, point) {
   let nearest = null, best = Infinity;
   for (const prop of props) {
     if (!prop.interactive || prop.fadeTime !== null || prop.fall?.gone) continue;
-    const distance = propDistance(point, prop);
+    const pose = runtimePose(prop);
+    const distance = propDistance(point, prop, pose);
     if (distance > reach) continue;
-    const centerDistance = Math.hypot(routeDelta(point.s, prop.s), point.h - runtimeHeight(prop));
+    const centerDistance = Math.hypot(routeDelta(point.s, pose.s), point.h - pose.h);
     const score = distance + .02 * centerDistance;
     if (score < best) { best = score; nearest = prop; }
   }
@@ -50,16 +61,25 @@ function pulseScale(time) {
 
 const vertexShader = `
   uniform vec4 bounds;
-  uniform float pulse;
+  uniform vec2 orbitOrigin;
+  uniform float pulse, orbitTurn;
   varying vec2 spriteUV;
   varying vec2 worldSize;
+  vec2 ringPoint(vec2 p) {
+    float angle = p.x / ${ringRadius};
+    return vec2(sin(angle), cos(angle)) * (${ringRadius} + p.y);
+  }
   void main() {
     worldSize = bounds.zw * pulse;
     vec2 offset = position.xy * (worldSize + ${2 * padding});
     spriteUV = offset / worldSize + .5;
-    float angle = (bounds.x + offset.x) / ${ringRadius};
-    float radius = ${ringRadius} + bounds.y + offset.y;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(vec2(sin(angle), cos(angle)) * radius, -1., 1.);
+    vec2 world = ringPoint(bounds.xy + offset);
+    if (orbitTurn != 0.) {
+      vec2 body = ringPoint(orbitOrigin + offset) - ringPoint(orbitOrigin);
+      float c = cos(orbitTurn), s = sin(orbitTurn);
+      world = ringPoint(bounds.xy) + mat2(c, -s, s, c) * body;
+    }
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(world, -1., 1.);
   }`;
 
 const fragmentShader = `
@@ -139,21 +159,24 @@ export async function createProps(scene) {
   const geometry = new THREE.PlaneGeometry(1, 1, 16, 1);
   const warm = new THREE.Color('#ffecae');
   const editColor = new THREE.Color('#b5ffee');
-  let active = null, selected = null, zoneLine;
+  let active = null, selected = null, riding = null, zoneLine;
 
   const blocked = prop => prop.requires.some(id => !collected.has(id));
 
   function placement(prop) {
     const { id, name, nameZh, asset, blob, s, h, width, height, interactive, behavior,
-      popupImage, popupName, requires, fallZone } = prop;
+      popupImage, popupName, requires, fallZone, motion } = prop;
     return { id, name, nameZh, asset, blob, s, h, width, height, interactive, behavior,
-      popupImage, popupName, requires, fallZone };
+      popupImage, popupName, requires, fallZone, motion };
   }
 
-  function change(prop, { s, h, width, height, interactive, behavior, popupImage, popupName, requires, fallZone }) {
+  function change(prop, { s, h, width, height, interactive, behavior, popupImage, popupName, requires, fallZone, motion }) {
     const rebuildFall = fallZone !== undefined || typeof interactive === 'boolean' || [s, h, width, height].some(Number.isFinite);
+    const previousS = prop.s, previousH = prop.h;
     if (Number.isFinite(s)) prop.s = wrap(s);
     if (Number.isFinite(h)) prop.h = Math.max(-ringRadius + 1, h);
+    const ds = routeDelta(prop.s, previousS), dh = prop.h - previousH;
+    const moved = Math.abs(ds) > 1e-9 || dh !== 0;
     if (Number.isFinite(width) && width >= .35 && width <= 18) prop.width = width;
     if (Number.isFinite(height) && height >= .35 && height <= 18) prop.height = height;
     if (typeof interactive === 'boolean' && prop.interactive !== interactive) {
@@ -168,8 +191,21 @@ export async function createProps(scene) {
     if (typeof popupName === 'string') prop.popupName = popupName;
     if (Array.isArray(requires)) prop.requires = [...new Set(requires.filter(id => typeof id === 'string' && id !== prop.id))];
     if (fallZone !== undefined) prop.fallZone = fallZone;
-    if (rebuildFall) prop.fall = createFallingProp(prop);
-    prop.mesh.material.uniforms.bounds.value.set(prop.s, prop.h, prop.width, prop.height);
+    if (motion !== undefined) {
+      prop.motion = normalizeMotion(motion);
+      prop.fadeTime = null;
+    } else if (moved && prop.motion) {
+      const shift = point => ({ s: point.s + ds, h: point.h + dh });
+      prop.motion = normalizeMotion({ pivot: prop.motion.pivot && shift(prop.motion.pivot), path: prop.motion.path?.map(shift) });
+    }
+    if (motion !== undefined || moved || typeof interactive === 'boolean') {
+      prop.travel = createPropMotion(prop);
+      if (riding === prop) riding = null;
+    }
+    if (rebuildFall || motion !== undefined) prop.fall = prop.travel ? null : createFallingProp(prop);
+    const uniforms = prop.mesh.material.uniforms;
+    uniforms.bounds.value.set(prop.s, prop.h, prop.width, prop.height);
+    uniforms.orbitOrigin.value.set(prop.s, prop.h);
     return placement(prop);
   }
 
@@ -177,6 +213,7 @@ export async function createProps(scene) {
     texture.premultiplyAlpha = true;
     const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       uniforms: { art: { value: texture }, bounds: { value: new THREE.Vector4() }, pulse: { value: 1 },
+        orbitOrigin: { value: new THREE.Vector2() }, orbitTurn: { value: 0 },
         highlight: { value: 0 }, opacity: { value: 1 }, outlineColor: { value: warm } }, vertexShader, fragmentShader });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
@@ -207,21 +244,33 @@ export async function createProps(scene) {
       height: height * home.pixelScale }, texture);
   }));
 
+  function ridingPose() {
+    const { s, h, x, y } = riding.travel.pose;
+    return { id: riding.id, s, h, x, y };
+  }
+
   return {
     defaults,
     get activeId() { return active?.id ?? null; },
+    get ridingId() { return riding?.id ?? null; },
     get animatingId() { return [...props.values()].find(prop => prop.elapsed < bounceDuration)?.id ?? null; },
     get collectedIds() { return [...collected]; },
     get prompt() {
-      if (active) return { s: active.s, h: runtimeHeight(active) + active.height / 2 + .26, blocked: blocked(active) };
+      const target = riding ?? active;
+      if (!target) return;
+      const pose = runtimePose(target);
+      const turn = pose.turn ? (target.s - pose.s) / ringRadius + pose.turn : 0;
+      const extent = Math.abs(Math.cos(turn)) * target.height / 2 + Math.abs(Math.sin(turn)) * target.width / 2;
+      return { s: pose.s, h: pose.h + extent + .26, blocked: !riding && blocked(target), riding: Boolean(riding) };
     },
     reset() {
-      active = null;
+      active = riding = null;
       collected.clear();
       for (const prop of props.values()) {
         prop.fadeTime = null;
         prop.elapsed = bounceDuration;
-        prop.fall = createFallingProp(prop);
+        prop.travel = createPropMotion(prop);
+        prop.fall = prop.travel ? null : createFallingProp(prop);
       }
     },
     stepHazards(before, player, dt) {
@@ -232,33 +281,55 @@ export async function createProps(scene) {
       return hit;
     },
     interact(player) {
+      if (riding) return null;
       const target = nearbyProp(props.values(), propPoint(player.x, player.y));
       if (!target) return null;
       if (blocked(target)) return { type: 'blocked' };
-      if (target.behavior === 'disappear') {
+      if (target.travel) {
+        riding = target;
+        active = null;
+        return { type: 'ride', ...ridingPose() };
+      }
+      if (!target.motion && target.behavior === 'disappear') {
         target.fadeTime = 0;
         collected.add(target.id);
         const { id, name, blob, asset } = target;
         return { type: 'pickup', id, name, blob, url: homeAssets.get(asset)?.url };
       }
-      if (target.behavior === 'image' && target.popupImage instanceof Blob) {
+      if (!target.motion && target.behavior === 'image' && target.popupImage instanceof Blob) {
         return { type: 'image', image: target.popupImage };
       }
-      if (target.behavior === 'bounce' && target.elapsed >= bounceDuration) target.elapsed = 0;
+      if ((target.motion || target.behavior === 'bounce') && target.elapsed >= bounceDuration) target.elapsed = 0;
       return null;
     },
+    stepRide(move, dt) {
+      if (!riding) return null;
+      const finished = Number.isFinite(dt) && dt > 0 && riding.travel.advance(Math.sign(move || 0), dt);
+      const pose = ridingPose();
+      if (finished) riding = null;
+      return { ...pose, finished };
+    },
+    exitRide() {
+      if (!riding) return null;
+      const pose = ridingPose();
+      riding = null;
+      return pose;
+    },
     update(dt, player, cameraProgress, viewWidth, viewHeight, editing, interactionEnabled = true) {
-      active = interactionEnabled && !editing && !player.falling ? nearbyProp(props.values(), propPoint(player.x, player.y)) : null;
+      active = interactionEnabled && !editing && !riding && !player.falling ? nearbyProp(props.values(), propPoint(player.x, player.y)) : null;
       const cameraS = cameraProgress * totalLength;
       for (const prop of props.values()) {
         prop.elapsed = Math.min(bounceDuration, prop.elapsed + dt);
         if (prop.fadeTime !== null) prop.fadeTime = Math.min(fadeDuration, prop.fadeTime + dt);
         const fading = !editing && prop.fadeTime !== null;
         const fade = fading ? THREE.MathUtils.smoothstep(prop.fadeTime, 0, fadeDuration) : 0;
+        const pose = editing ? prop : runtimePose(prop);
         prop.mesh.visible = (editing || !prop.fall?.gone) && fade < 1 &&
-          Math.abs(routeDelta(prop.s, cameraS)) < Math.max(viewWidth, viewHeight) * .75 + 10 + prop.width;
+          Math.abs(routeDelta(pose.s, cameraS)) < Math.max(viewWidth, viewHeight) * .75 + 10 + prop.width;
         const uniforms = prop.mesh.material.uniforms;
-        uniforms.bounds.value.y = editing ? prop.h : runtimeHeight(prop);
+        uniforms.bounds.value.x = pose.s;
+        uniforms.bounds.value.y = pose.h;
+        uniforms.orbitTurn.value = pose.turn ?? 0;
         uniforms.pulse.value = fading ? 1 - .15 * fade : pulseScale(prop.elapsed);
         uniforms.opacity.value = 1 - fade;
         uniforms.highlight.value = THREE.MathUtils.damp(uniforms.highlight.value,
@@ -273,7 +344,7 @@ export async function createProps(scene) {
       if (definition.asset) {
         const asset = definition.asset === definition.id && homeAssets.get(definition.asset);
         if (!asset) throw new Error('This original prop could not load.');
-        if (existing) return change(existing, definition);
+        if (existing) return change(existing, { ...definition, motion: definition.motion ?? null });
         return mount({ ...definition, height: definition.height ?? asset.height }, asset.texture);
       }
       if (existing) throw new Error('An object already has this identifier.');
@@ -284,7 +355,7 @@ export async function createProps(scene) {
     },
     pick(point) {
       const list = Array.from(props.values());
-      const prop = list.findLast(item => propDistance(point, item, item.h) <= .18);
+      const prop = list.findLast(item => propDistance(point, item, item) <= .18);
       if (prop) return placement(prop);
     },
     edit(id, values) {
@@ -299,6 +370,7 @@ export async function createProps(scene) {
       prop.mesh.material.dispose();
       props.delete(id);
       if (selected === id) selected = null;
+      if (riding === prop) riding = null;
     },
     select(id) { selected = id; },
     previewZone(zone) {

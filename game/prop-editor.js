@@ -1,5 +1,6 @@
 import { WORLD } from './world.js?v=20261123b';
 import { createColliderEditor } from './collider-editor.js?v=20261127';
+import { createMovementEditor } from './movement-editor.js?v=20261127b';
 
 const MIN_SIZE = 0.35;
 const MAX_SIZE = 18;
@@ -8,7 +9,8 @@ const STORE = 'placed-props';
 const BLOCK_DRAFT = '!collision-blocks';
 const LANGUAGE_KEY = 'nailong-editor-language';
 const POPUP_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const missingPopup = prop => prop?.interactive !== false && prop?.behavior === 'image' && !prop.popupImage;
+const missingPopup = prop => prop?.interactive !== false && !prop?.motion && prop?.behavior === 'image' && !prop.popupImage;
+const isPickup = prop => prop?.interactive !== false && !prop?.motion && prop?.behavior === 'disappear';
 const chinese = {
   'Prop editor': '物品编辑器',
   'Editing tool': '编辑工具',
@@ -47,6 +49,25 @@ const chinese = {
   'Disappear': '拾取并消失',
   'Show image': '显示图片',
   'Choose image': '选择图片',
+  'Moving object': '移动物品',
+  'Set pivot': '设置旋转中心',
+  'Move pivot': '移动旋转中心',
+  'Clear pivot': '清除旋转中心',
+  'Cancel pivot': '取消设置中心',
+  'Draw path': '绘制轨迹',
+  'Redraw path': '重画轨迹',
+  'Clear path': '清除轨迹',
+  'Finish path': '完成轨迹',
+  'Undo point': '撤销点位',
+  'Moving object enabled. Save to keep it.': '已设为移动物品。请保存这次修改。',
+  'Moving object disabled. Save to keep it.': '已关闭移动物品。请保存这次修改。',
+  'Click the scene to place the pivot.': '点击场景，放置旋转中心。',
+  'Click to add curve points. Finish to set the exit.': '依次点击添加曲线点。完成后，最后一点就是下车位置。',
+  'Point limit reached. Finish the path or undo a point.': '点位已达上限。可以完成轨迹或撤销点位。',
+  'Pivot set. Save to keep it.': '已设置旋转中心。请保存这次修改。',
+  'Pivot cleared. Save to keep it.': '已清除旋转中心。请保存这次修改。',
+  'Path set. Save to keep it.': '已设置轨迹。请保存这次修改。',
+  'Path cleared. Save to keep it.': '已清除轨迹。请保存这次修改。',
   'Required pickups': '依赖物品',
   'All selected items are required.': '玩家需要拾取全部勾选的物品。',
   'No other pickups available.': '将其他物品设为「拾取并消失」后，即可设为依赖。',
@@ -137,11 +158,11 @@ async function usePropStorage(database, mode, operation) {
 export function createPropEditor({
   root, canvas, getPoint, addProp, pickProp, editProp, removeProp, selectProp, restoreProps, clearInput,
   loadSharedProps, publishSharedProps, defaultProps = [], previewZone = () => {},
-  setCollisionBlocks = () => {}, previewCollisionBlocks = () => {},
+  setCollisionBlocks = () => {}, previewCollisionBlocks = () => {}, previewMotion = () => {},
 }) {
   const stylesheet = document.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-editor.css?v=20261127', import.meta.url);
+  stylesheet.href = new URL('./prop-editor.css?v=20261127b', import.meta.url);
   document.head.append(stylesheet);
 
   const panel = document.createElement('section');
@@ -211,6 +232,7 @@ export function createPropEditor({
         <span aria-live="polite"></span>
         <input type="file" name="popup" accept="${POPUP_TYPES.join(',')}" hidden>
       </div>
+      <div class="prop-editor-motion"></div>
       <details class="prop-editor-requirements">
         <summary><span data-text="Required pickups">Required pickups</span> <span class="prop-editor-count"></span></summary>
         <p data-text="All selected items are required.">All selected items are required.</p>
@@ -281,15 +303,37 @@ export function createPropEditor({
       syncControls();
     },
   });
+  const movementTool = createMovementEditor({
+    host: panel.querySelector('.prop-editor-motion'), t, preview: previewMotion, hint: setHint,
+    start(editing) {
+      if (editing) {
+        stopDrag();
+        drawingZone = false;
+        pendingFile = null;
+        canvas.focus({ preventScroll: true });
+      }
+      syncControls();
+      setHint();
+    },
+    change(motion, message) {
+      const wasPickup = isPickup(definitions.get(selectedId));
+      changeProp(selectedId, { motion });
+      const cleared = motion && wasPickup && clearReferences(selectedId);
+      listDependencies();
+      setHint(cleared ? 'Dependency links were cleared. Save to keep this change.' : message);
+    },
+  });
 
   globalButton.hidden = !publishSharedProps;
   const hasMissingImage = objects => [...objects].some(missingPopup);
   function canPublish() {
     return Boolean(publishSharedProps) && sharedLoaded && loaded && !saving && !placing && !preparingPopup &&
-      !drawingZone && Boolean(edits.size || savedDrafts.size) && !hasMissingImage(definitions.values());
+      !drawingZone && !movementTool.mode && Boolean(edits.size || savedDrafts.size) && !hasMissingImage(definitions.values());
   }
   function defaultHint() {
     if (tool === 'blocks') return collisionTool.hint();
+    const movementHint = movementTool.hint();
+    if (movementHint) return movementHint;
     if (drawingZone) return 'Drag on the scene to draw the trigger zone.';
     if (pendingFile) return 'Click the scene to place {name}.';
     if (preparingPopup) return 'Checking popup image…';
@@ -337,8 +381,7 @@ export function createPropEditor({
     if (!prop) return;
     const required = new Set(prop.requires ?? []);
     const options = new Map([...definitions.values()]
-      .filter(option => option.id !== selectedId && option.interactive !== false &&
-        option.behavior === 'disappear' && !dependsOn(option, selectedId))
+      .filter(option => option.id !== selectedId && isPickup(option) && !dependsOn(option, selectedId))
       .map(option => [option.id, propName(option)]));
     for (const id of required) {
       if (!options.has(id)) {
@@ -370,8 +413,9 @@ export function createPropEditor({
     interactiveInput.checked = selection?.interactive !== false;
     reaction.hidden = !selection || !interactiveInput.checked;
     behaviorInput.value = selection?.behavior ?? 'bounce';
-    behaviorInput.disabled = saving;
-    popupRow.hidden = behaviorInput.value !== 'image';
+    behaviorInput.disabled = saving || Boolean(selection?.motion);
+    behaviorInput.closest('label').hidden = Boolean(selection?.motion);
+    popupRow.hidden = behaviorInput.value !== 'image' || Boolean(selection?.motion);
     popupButton.disabled = saving || preparingPopup;
     popupFileName.textContent = selection?.popupImage ? selection.popupName || t('Image selected') : t('No image selected');
     pickupList.disabled = saving;
@@ -391,7 +435,9 @@ export function createPropEditor({
     fileButton.hidden = tool === 'blocks';
     for (const option of tools) option.disabled = saving || placing || preparingPopup;
     collisionTool.setState({ active: active && tool === 'blocks', disabled: !loaded || saving });
-    saveButton.disabled = !localLoaded || !loaded || saving || preparingPopup || drawingZone || !edits.size || hasMissingImage(edits.values());
+    movementTool.setState(active && tool === 'objects' && selection?.interactive !== false ? selection : null, !loaded || saving || placing);
+    panel.classList.toggle('prop-editor-drawing-motion', Boolean(movementTool.mode));
+    saveButton.disabled = !localLoaded || !loaded || saving || preparingPopup || drawingZone || Boolean(movementTool.mode) || !edits.size || hasMissingImage(edits.values());
     globalButton.disabled = button('publish').disabled = !canPublish();
     button('cancel-publish').disabled = saving;
     tokenInput.disabled = saving;
@@ -596,6 +642,7 @@ export function createPropEditor({
     const file = fileInput.files[0];
     fileInput.value = '';
     if (!file || !active) return;
+    movementTool.cancel();
     drawingZone = false;
     stopDrag();
     pendingFile = file;
@@ -643,7 +690,7 @@ export function createPropEditor({
   }
   interactiveInput.addEventListener('change', () => {
     const id = selectedId;
-    const wasPickup = definitions.get(id)?.behavior === 'disappear';
+    const wasPickup = isPickup(definitions.get(id));
     if (!interactiveInput.checked) {
       drawingZone = false;
       stopDrag();
@@ -655,7 +702,7 @@ export function createPropEditor({
   });
   behaviorInput.addEventListener('change', () => {
     const id = selectedId, behavior = behaviorInput.value;
-    const wasPickup = definitions.get(id)?.behavior === 'disappear';
+    const wasPickup = isPickup(definitions.get(id));
     changeProp(id, { behavior });
     const cleared = wasPickup && behavior !== 'disappear' && clearReferences(id);
     listDependencies();
@@ -673,6 +720,7 @@ export function createPropEditor({
   });
   drawButton.addEventListener('click', () => {
     if (!selectedId) return;
+    movementTool.cancel();
     stopDrag();
     drawingZone = !drawingZone;
     pendingFile = null;
@@ -729,6 +777,10 @@ export function createPropEditor({
     if (!active || tool !== 'objects' || !loaded || placing || saving || event.button !== 0) return;
     const point = getPoint(event.clientX, event.clientY);
     if (!point) return;
+    if (movementTool.mode) {
+      movementTool.place(point);
+      return;
+    }
     if (drawingZone && selectedId) {
       drag = { pointerId: event.pointerId, origin: point };
       canvas.setPointerCapture(event.pointerId);
@@ -748,6 +800,10 @@ export function createPropEditor({
     canvas.setPointerCapture(event.pointerId);
   });
   canvas.addEventListener('pointermove', (event) => {
+    if (movementTool.mode === 'path') {
+      movementTool.hover(getPoint(event.clientX, event.clientY));
+      return;
+    }
     if (event.pointerId !== drag?.pointerId) return;
     const point = getPoint(event.clientX, event.clientY);
     if (!point) return;
@@ -757,6 +813,9 @@ export function createPropEditor({
     } else {
       changeProp(selectedId, { s: point.s + drag.s, h: point.h + drag.h });
     }
+  });
+  canvas.addEventListener('pointerleave', () => {
+    if (movementTool.mode === 'path') movementTool.hover(null);
   });
   canvas.addEventListener('pointerup', event => {
     if (event.pointerId !== drag?.pointerId) return;

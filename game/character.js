@@ -194,7 +194,7 @@ export async function createCharacter(scene, radius) {
           vec3 linearColor = sRGBTransferEOTF(vec4(clamp(color.rgb, 0., 1.), 1.)).rgb;
           // The cool brushstrokes pick up nearby light while the eyes and edge keep their paint.
           float coolPigment = smoothstep(.02, .23, color.b - min(color.r, color.g));
-          float reflection = painted * mix(.06, .21, coolPigment);
+          float reflection = painted * mix(.16, .46, coolPigment);
           linearColor = mix(linearColor, reflectedLight * dot(linearColor, luminance), reflection);
           result += vec4(linearColor * color.a, color.a) * weights[i];
         }

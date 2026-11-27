@@ -159,6 +159,39 @@
   gap: 8px;
 }
 
+.prop-editor-motion {
+  display: grid;
+  gap: 7px;
+}
+
+.prop-editor-motion .prop-editor-motion-toggle {
+  display: flex;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.prop-editor-motion-toggle input {
+  margin: 0;
+  accent-color: #a34e34;
+}
+
+.prop-editor-motion [data-motion="finish"]:not(:disabled) {
+  border-color: #8d482f;
+  background: #a34e34;
+  color: #fffdf6;
+}
+
+.prop-editor-drawing-motion {
+  gap: 8px;
+}
+
+.prop-editor-drawing-motion > :is(.prop-editor-tools, .prop-editor-actions, .prop-editor-publish),
+.prop-editor-drawing-motion .prop-editor-objects > :not(.prop-editor-reaction),
+.prop-editor-drawing-motion .prop-editor-reaction > :not(.prop-editor-motion),
+.prop-editor-drawing-motion .prop-editor-motion-toggle {
+  display: none;
+}
+
 .prop-editor-popup-file {
   display: flex;
   align-items: center;
