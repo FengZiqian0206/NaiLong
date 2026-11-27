@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from '../vendor/three.module.min.js';
-import { createProps } from './props.js?v=20261127c';
+import { createProps } from './props.js?v=20261127e';
 import { WORLD, samplePath } from './world.js';
 
 test('scene props support disappearing, picture reveals and legacy bounce', async (t) => {

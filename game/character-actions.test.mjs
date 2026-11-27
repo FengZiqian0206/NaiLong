@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { createCharacterActions } from './character-actions.js';
-import { createPlayer, PHYSICS } from './physics.js';
-import { floorPoint, PANELS } from './scenes.js';
+import { createCharacterActions } from './character-actions.js?v=20261127e';
+import { createPlayer, PHYSICS } from './physics.js?v=20261127e';
+import { floorPoint, PANELS } from './scenes.js?v=20261127e';
 
 const player = createPlayer();
 const poses = [], cues = [];

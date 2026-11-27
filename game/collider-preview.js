@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { worldAt } from './scenes.js?v=20261127c';
+import { worldAt } from './scenes.js?v=20261127e';
 
 export function createColliderPreview(scene) {
   const group = new THREE.Group();

@@ -1,4 +1,4 @@
-import { COLLIDERS, CUSTOM_COLLIDERS } from './scenes.js?v=20261127c';
+import { COLLIDERS, CUSTOM_COLLIDERS } from './scenes.js?v=20261127e';
 import { WORLD } from './world.js?v=20261123b';
 
 const { ringRadius, totalLength } = WORLD;

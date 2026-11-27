@@ -1,4 +1,4 @@
-import { MOTION_POINT_LIMIT } from './prop-motion.js?v=20261127c';
+import { MOTION_POINT_LIMIT } from './prop-motion.js?v=20261127e';
 import { WORLD } from './world.js?v=20261123b';
 
 const totalLength = WORLD.totalLength;

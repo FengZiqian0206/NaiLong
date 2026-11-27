@@ -1,6 +1,6 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {WORLD} from './world.js?v=20261123b';
-import {PANELS,TRANSITIONS,LEVEL3_ENTRY_STAIRS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127c';
+import {PANELS,TRANSITIONS,LEVEL3_ENTRY_RAMP,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127e';
 
 // Arc-length overlaps. A longer dissolve in matching scenery softens the join
 // without having to stretch the transition or repeat its landmarks.
@@ -19,7 +19,7 @@ const registrations=[
    {x:1855,y:676,levelY:621.5,sx:1.097,sy:1.093}],
   [{x:574,y:679,levelY:621.5,sx:1.098,sy:1.097},
    {x:1804,y:605,levelY:551,sx:1.097,sy:1.097}],
-  [{x:526,y:547,levelY:551,sx:1.028,sy:1.009},
+  [{x:526,y:547,levelY:552,sx:1.028,sy:1.009},
    {x:1658,y:555,levelY:548,sx:1.027,sy:1.008}],
 ];
 // Pixel rows along the actual path through the new illustrations. Leaving the
@@ -27,7 +27,7 @@ const registrations=[
 const roadProfiles={
   2:[[605,574],[760,573],[1660,575],[1750,589],[1805,615]],
   3:[[706,666],[1424,666],[1538,652],[1665,644],[1740,626]],
-  4:[[602,550],[1060,553],[1300,555],[1560,555]],
+  4:[[640,547],[735,548.5],[865,549.5],[1060,553],[1300,555],[1560,555]],
 };
 // Lift the distant scenery only across broad spans. The low foreground can
 // still follow the walking surface, including the approach to the red stairs.
@@ -70,47 +70,40 @@ const transitionPaint=`
   uniform sampler2D art;
   uniform float overscan,garden,transitionIndex;
   uniform vec2 paintedEdges,imageSize;
-  uniform vec3 stairOffsets;
-  uniform float stairRise;
+  uniform float rampStartsAt;
   ${edgePaint}
 
   float window(float p,float left,float right,float feather){
     return smoothstep(left-feather,left,p)*(1.-smoothstep(right,right+feather,p));
   }
 
-  vec3 terraceStairs(vec3 paint,vec2 uv,float x,float relative,float worldHeight){
-    // Replace the thin painted curb before drawing the new stonework. The
-    // trees, reflected wall and arch never move at the step boundaries.
-    float apron=window(relative,-2.4,1.46,1.07);
+  vec3 fairgroundApproach(vec3 paint,vec2 uv,float x,float relative,float worldHeight){
+    float apron=window(relative,rampStartsAt,1.48,1.25);
     if(apron<=0.) return paint;
-    vec3 passed=step(-stairOffsets,vec3(relative));
-    float tread=(passed.x+passed.y+passed.z-3.)*stairRise;
-    float depth=tread-worldHeight;
-    float nativeRow=mix(597.,578.5,clamp((x-1927.5)/25.5,0.,1.));
-    float rimOffset=(1.-uv.y)*imageSize.y-nativeRow;
-    float aa=clamp(fwidth(worldHeight)*.64,.009,.047);
-    float covered=smoothstep(-aa,aa,depth);
-    float oldCurb=window(rimOffset,-.5,14.,3.);
-    float safeRow=nativeRow-5.-max(0.,rimOffset)*.28;
-    vec3 wall=texture2D(art,vec2(uv.x,1.-safeRow/imageSize.y)).rgb;
-    float baseRow=nativeRow+18.+max(0.,rimOffset)*.44;
-    vec3 foundation=texture2D(art,vec2(uv.x,1.-baseRow/imageSize.y)).rgb;
-    vec3 scene=mix(paint,mix(wall,foundation,covered),oldCurb);
+    float nativeRow=mix(598.,579.5,clamp((x-1927.5)/25.5,0.,1.));
+    float newRow=(1.-artworkWarp.y)*imageSize.y;
+    float difference=abs(nativeRow-newRow);
+    float row=(1.-uv.y)*imageSize.y;
+    float nativeDepth=row-nativeRow;
+    float depth=-worldHeight*imageSize.y/artworkWarp.w;
 
-    // Use the two existing stone textures for the stair, letting the cool
-    // curb pick up the same amber light as the landing at the arch.
-    float stoneDepth=clamp(depth*imageSize.y/artworkWarp.w,0.,17.);
-    float westX=clamp(x,1841.,1923.);
-    float eastX=1957.+(x-1841.)*.51;
-    vec3 westStone=texture2D(art,vec2(westX/imageSize.x,1.-(598.+stoneDepth)/imageSize.y)).rgb;
-    vec3 eastStone=texture2D(art,vec2(eastX/imageSize.x,1.-(579.5+stoneDepth)/imageSize.y)).rgb;
-    float lantern=smoothstep(1889.,1950.,x);
-    vec3 stone=mix(westStone,eastStone,lantern);
-    float nosing=1.-smoothstep(.014,.068,depth);
-    stone*=mix(.84,1.08,nosing);
-    float front=covered*(1.-smoothstep(.33,.68,depth));
-    scene=mix(scene,stone,front);
-    return mix(paint,scene,apron);
+    // Only replace the displaced curb. Preserve the scene above it and use
+    // the original stone, including the same painted joints, on the new grade.
+    float correction=smoothstep(.35,1.5,difference);
+    float oldCurb=window(nativeDepth,-1.,15.,2.9);
+    float wallRow=nativeRow-6.-max(0.,nativeDepth)*.26;
+    vec3 wall=texture2D(art,vec2(uv.x,1.-wallRow/imageSize.y)).rgb;
+    float baseRow=nativeRow+19.+max(0.,nativeDepth)*.43;
+    vec3 base=texture2D(art,vec2(uv.x,1.-baseRow/imageSize.y)).rgb;
+    float covered=smoothstep(-1.,.55,depth);
+    vec3 cleared=mix(paint,mix(wall,base,covered),oldCurb);
+    vec3 stone=texture2D(art,vec2(uv.x,1.-(nativeRow+depth)/imageSize.y)).rgb;
+    float front=covered*(1.-smoothstep(15.,24.,depth));
+    vec3 paving=mix(paint,mix(cleared,stone,front),correction);
+
+    float lantern=smoothstep(1590.,1900.,x)*(1.-smoothstep(1915.,1954.,x));
+    paving*=mix(vec3(1.),vec3(.93,.72,.73),lantern*front*.63);
+    return mix(paint,paving,apron);
   }
 
   vec3 factoryApproach(vec3 paint,vec2 uv,float x,float worldHeight){
@@ -143,17 +136,29 @@ const transitionPaint=`
     return mix(paint,path,footprint);
   }
 
+  vec3 porchPaving(vec3 paint,vec2 uv,float x){
+    float depth=(1.-uv.y)*imageSize.y-603.;
+    float shade=window(x,1490.,1775.,225.);
+    float stone=window(depth,-1.,8.5,4.);
+    float face=window(depth,8.,31.,9.);
+    float light=dot(paint,vec3(.2126,.7152,.0722));
+    paint=mix(paint,paint*vec3(.76,.81,.87),shade*stone*smoothstep(.22,.77,light));
+    return mix(paint,paint*vec3(1.12,1.1,1.07),shade*face);
+  }
+
   vec3 stationApproach(vec3 paint,vec2 uv,float x){
     float row=(1.-uv.y)*imageSize.y;
-    float roadRow=547.+3.*smoothstep(570.,785.,x);
-    float stationLight=(1.-smoothstep(551.,845.,x))*smoothstep(470.,521.,x);
-    float curb=window(row-roadRow,-2.,7.,5.);
-    float warmLight=smoothstep(-.04,.20,paint.r-paint.b);
-    // Keep cracks and the original grain in place as the warm light develops.
-    vec3 coolStone=paint*vec3(.18,1.13,1.27);
-    paint=mix(paint,coolStone,stationLight*curb*warmLight);
+    float roadRow=547.+3.*smoothstep(640.,865.,x);
+    float stationLight=window(x,485.,572.,300.);
+    float curb=window(row-roadRow,-1.8,8.6,4.);
+    float warmth=smoothstep(-.045,.33,paint.r-paint.b);
+    float grain=dot(paint,vec3(.2126,.7152,.0722));
+    // Give both sides of the rim the same light at the junction, then let
+    // the garden light return along the original cracks and stonework.
+    vec3 coolStone=vec3(.25,1.12,1.44)*grain*mix(1.,1.15,warmth);
+    paint=mix(paint,coolStone,stationLight*curb);
     float railing=stationLight*window(row,485.,544.,7.);
-    return mix(paint,paint*vec3(.69,.99,1.15),railing*warmLight*.55);
+    return mix(paint,paint*vec3(.69,.99,1.15),railing*warmth*.48);
   }
 
   vec4 paint(vec2 uv){
@@ -163,7 +168,8 @@ const transitionPaint=`
     float worldHeight=(uv.y-artworkWarp.y)*artworkWarp.w;
     uv.y+=artworkWarp.x*(1.-smoothstep(.045,.25,abs(uv.y-artworkWarp.y)));
     vec4 color=continuedPaint(art,uv,1.,garden);
-    if(transitionIndex==1.) color.rgb=terraceStairs(color.rgb,uv,x,relative,worldHeight);
+    if(transitionIndex==0.) color.rgb=porchPaving(color.rgb,uv,x);
+    if(transitionIndex==1.) color.rgb=fairgroundApproach(color.rgb,uv,x,relative,worldHeight);
     if(transitionIndex==2.) color.rgb=factoryApproach(color.rgb,uv,x,worldHeight);
     // The neighboring paintings use different exposure even at landmarks
     // they share. Match the common colors near each edge before the dissolve.
@@ -281,10 +287,11 @@ export async function addArtwork(scene) {
       fadeOut:{value:edgeBlends[next.index][0]/length},
       stagger:{value:Number(staggeredPanels.has(index))},
       floorUV:{value:1-baseline/source.height},
+      stationDeparture:{value:Number(index===4)},
       garden:{value:Number(index===PANELS.length-1)},
     },`
       uniform sampler2D art,mask;
-      uniform float hasMask,fadeIn,fadeDelay,fadeOut,stagger,floorUV,garden;
+      uniform float hasMask,fadeIn,fadeDelay,fadeOut,stagger,floorUV,stationDeparture,garden;
       uniform vec2 sourceBand;
       ${edgePaint}
       vec4 paint(vec2 uv){
@@ -296,8 +303,16 @@ export async function addArtwork(scene) {
         float weave=.33*(row-.45)+.09*sin(row*14.);
         float incomingWidth=fadeIn*(1.+stagger*weave);
         float outgoingWidth=fadeOut*(1.-stagger*weave);
-        float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+incomingWidth,uv.x):1.)*
-          (fadeOut>0.?smoothstep(0.,outgoingWidth,1.-uv.x):1.);
+        float incoming=fadeIn>0.?smoothstep(fadeDelay,fadeDelay+incomingWidth,uv.x):1.;
+        float outgoing=fadeOut>0.?smoothstep(0.,outgoingWidth,1.-uv.x):1.;
+        if(stationDeparture>.5){
+          // Let the aligned path plate own the near side of the join, so
+          // two versions of the same pavement edge never remain visible.
+          float pavement=1.-smoothstep(.013,.052,abs(row-floorUV));
+          float pathFade=smoothstep(fadeOut*.3,fadeOut*1.23,1.-uv.x);
+          outgoing=mix(outgoing,pathFade,pavement);
+        }
+        float edgeFade=incoming*outgoing;
         float black=min(texture2D(mask,uv).r,
           min(texture2D(mask,uv+vec2(0.,.004)).r,texture2D(mask,uv-vec2(0.,.004)).r));
         // Raised platforms retain their visible contact surfaces; the two
@@ -347,23 +362,21 @@ export async function addArtwork(scene) {
       if(road) {
         roadRow=rowAlongRoad(road,sourceX);
       } else if(index===1) {
-        // Ease the two original row heights together outside the stair apron.
-        roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-21,end));
+        // Match the school curb along the grade, then register the arch
+        // gently against its matching painting at the end of the bridge.
+        roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-12,end));
       } else {
         roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-5,end));
       }
       const artHeight=height*verticalScale;
-      const trackHeight=index===1
-        ? THREE.MathUtils.lerp(exitTop,entryTop,THREE.MathUtils.smoothstep(s,start,end))
-        : top(s);
+      const trackHeight=top(s);
       const broadT=THREE.MathUtils.smoothstep(sourceX,scenery?.at(-2)[0]??entry.x,exit.x);
       const sceneryHeight=THREE.MathUtils.lerp(exitTop,entryTop,broadT);
       const sceneryRow=scenery?rowAlongRoad(scenery,sourceX):roadRow;
       const ceiling=(scenery?sceneryHeight:trackHeight)+sceneryRow*verticalScale;
       const roadShift=(ceiling-trackHeight-roadRow*verticalScale)/artHeight;
       const safeShift=THREE.MathUtils.clamp(roadShift,-.085,.085);
-      const referenceHeight=index===1?entryTop:trackHeight;
-      const floor=1+(referenceHeight-ceiling)/artHeight;
+      const floor=1+(trackHeight-ceiling)/artHeight;
       return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width,safeShift,floor,s-end,artHeight];
     },{
       art:{value:bridges[index]},
@@ -371,8 +384,7 @@ export async function addArtwork(scene) {
       garden:{value:Number(index===4)},
       transitionIndex:{value:index},
       imageSize:{value:new THREE.Vector2(width,height)},
-      stairOffsets:{value:new THREE.Vector3(...LEVEL3_ENTRY_STAIRS.offsets)},
-      stairRise:{value:LEVEL3_ENTRY_STAIRS.rise},
+      rampStartsAt:{value:-LEVEL3_ENTRY_RAMP.length-LEVEL3_ENTRY_RAMP.endBefore},
       paintedEdges:{value:new THREE.Vector2(entry.x/width,exit.x/width)},
     },transitionPaint,-2);
   }

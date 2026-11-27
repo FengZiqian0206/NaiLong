@@ -1,6 +1,6 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { worldAt } from './scenes.js?v=20261127c';
-import { sampleMotionPath } from './prop-motion.js?v=20261127c';
+import { worldAt } from './scenes.js?v=20261127e';
+import { sampleMotionPath } from './prop-motion.js?v=20261127e';
 
 export function createMotionPreview(scene) {
   const preview = new THREE.Group();

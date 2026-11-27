@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261127c';
+import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261127e';
 import {nearestPath} from './world.js?v=20261123b';
-import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint,setCustomColliders} from './scenes.js?v=20261127c';
-import {createCharacterActions} from './character-actions.js';
+import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,LEVEL3_ENTRY_RAMP,worldAt,floorPoint,setCustomColliders} from './scenes.js?v=20261127e';
+import {createCharacterActions} from './character-actions.js?v=20261127e';
 
 const dt=PHYSICS.fixedDt;
 assert.equal(WORLD.radius,.62,'art replacement preserves character size');
@@ -280,12 +280,17 @@ for(const seam of [...TRANSITIONS.map(t=>t.start),...PANELS.slice(1).map(panel=>
 }
 for(const bridge of TRANSITIONS.slice(1,3)) for(const direction of [-1,1]) {
   resetPlayer(p);
-  Object.assign(p,floorPoint(bridge.end-direction*3));
-  for(let i=0;i<85;i++) {
+  const lower=bridge.end-(bridge.index===1?LEVEL3_ENTRY_RAMP.length+LEVEL3_ENTRY_RAMP.endBefore+2:3);
+  const upper=bridge.end+3;
+  const destination=direction>0?upper-.5:lower+.5;
+  Object.assign(p,floorPoint(direction>0?lower:upper));
+  const reached=()=>direction*(p.progress*WORLD.totalLength-destination)>=0;
+  const limit=Math.ceil((upper-lower)/PHYSICS.speed/dt)+40;
+  for(let i=0;i<limit&&!reached();i++) {
     tick(p,direction);
     assert.ok(p.grounded,'the revised join supports walking in both directions');
   }
-  assert.ok((p.progress*WORLD.totalLength-bridge.end)*direction>2,'walking clears the revised join');
+  assert.ok(reached(),'walking clears the revised join and the whole incline');
 }
 const dedicatedBridgeFrames=[];
 for(const bridge of TRANSITIONS) {

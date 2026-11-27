@@ -1,5 +1,5 @@
 import { WORLD } from './world.js?v=20261123b';
-import { normalizeMotion } from './prop-motion.js?v=20261127c';
+import { normalizeMotion } from './prop-motion.js?v=20261127e';
 
 const repository = 'https://api.github.com/repos/FengZiqian0206/NaiLong';
 const manifestPath = 'game/assets/shared-props.json';

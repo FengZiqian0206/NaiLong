@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MOTION_POINT_LIMIT, createPropMotion, normalizeMotion, sampleMotionPath } from './prop-motion.js?v=20261127c';
-import { worldAt } from './scenes.js?v=20261127c';
+import { MOTION_POINT_LIMIT, createPropMotion, normalizeMotion, sampleMotionPath } from './prop-motion.js?v=20261127e';
+import { worldAt } from './scenes.js?v=20261127e';
 import { WORLD } from './world.js?v=20261123b';
 
 test('authored motion normalizes safely and smooth previews follow the short direction around the ring', () => {

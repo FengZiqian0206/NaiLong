@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadSharedProps, publishSharedProps } from './shared-props.js';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127e';
 
 test('global publishing preserves editable originals, dependencies and zones and protects newer revisions', async context => {
   const token = 'github_pat_test_not_a_real_token';

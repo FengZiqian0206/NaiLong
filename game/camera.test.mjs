@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js';
-import { PHYSICS } from './physics.js?v=20261127c';
-import { SPAWN, GOAL, PANELS } from './scenes.js?v=20261127c';
+import { PHYSICS } from './physics.js?v=20261127e';
+import { SPAWN, GOAL, PANELS } from './scenes.js?v=20261127e';
 import { WORLD, samplePath, nearestPath } from './world.js';
 
 const radians = degrees => degrees * Math.PI / 180;

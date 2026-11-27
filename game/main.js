@@ -1,19 +1,19 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127c';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127e';
 import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127d';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
-import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127c';
-import { addArtwork } from './artwork.js?v=20261127d';
+import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127e';
+import { addArtwork } from './artwork.js?v=20261127e';
 import { createCharacter } from './character.js?v=20261127b';
-import { createCharacterActions } from './character-actions.js?v=20261127c';
+import { createCharacterActions } from './character-actions.js?v=20261127e';
 import { createFeedback } from './feedback.js?v=20261127b';
-import { createProps, propPoint } from './props.js?v=20261127c';
-import { createPropEditor } from './prop-editor.js?v=20261127c';
+import { createProps, propPoint } from './props.js?v=20261127e';
+import { createPropEditor } from './prop-editor.js?v=20261127e';
 import { createPropPopup } from './prop-popup.js?v=20261126b';
-import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127c';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127e';
 import { createPropHud } from './prop-hud.js?v=20261127c';
-import { createColliderPreview } from './collider-preview.js?v=20261127c';
-import { createMotionPreview } from './motion-preview.js?v=20261127c';
+import { createColliderPreview } from './collider-preview.js?v=20261127e';
+import { createMotionPreview } from './motion-preview.js?v=20261127e';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -153,7 +153,7 @@ function restart() {
   props.reset(player);
   propHud.reset();
   Object.assign(cameraPose, createCameraPose(player, viewHeight));
-  accumulator = 0; paused = false; finished = false; started = false;
+  accumulator = 0; paused = false; finished = false; started = false; wideView = false;
   canvas.focus({ preventScroll: true });
 }
 const playKeys = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE'];
@@ -177,7 +177,7 @@ window.addEventListener('keydown', (event) => {
   if (playKeys.includes(event.code) || ['KeyR', 'KeyV'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
   if (event.code === 'KeyR') return restart();
-  if (event.code === 'KeyV') { wideView = !wideView; return; }
+  if (event.code === 'KeyV') { wideView = true; return; }
   if (paused || finished) return;
   if (!playKeys.includes(event.code)) return;
   started = true;

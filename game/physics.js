@@ -1,5 +1,5 @@
 import { WORLD, nearestPath } from './world.js?v=20261123b';
-import { COLLIDERS, CUSTOM_COLLIDERS, SPAWN, GOAL, SCENE_LENGTH, PANELS, floorPoint, sceneAt } from './scenes.js?v=20261127c';
+import { COLLIDERS, CUSTOM_COLLIDERS, SPAWN, GOAL, SCENE_LENGTH, PANELS, floorPoint, sceneAt } from './scenes.js?v=20261127e';
 export { WORLD, samplePath } from './world.js?v=20261123b';
 
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));

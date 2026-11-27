@@ -1,6 +1,6 @@
 import { WORLD } from './world.js?v=20261123b';
 import { createColliderEditor } from './collider-editor.js?v=20261127';
-import { createMovementEditor } from './movement-editor.js?v=20261127c';
+import { createMovementEditor } from './movement-editor.js?v=20261127e';
 
 const MIN_SIZE = 0.35;
 const MAX_SIZE = 18;

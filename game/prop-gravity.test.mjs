@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127c';
-import { PANELS, floorPoint, setCustomColliders, worldAt } from './scenes.js?v=20261127c';
+import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127e';
+import { PANELS, floorPoint, setCustomColliders, worldAt } from './scenes.js?v=20261127e';
 import { WORLD } from './world.js?v=20261123b';
 
 const tick = 1 / 120;

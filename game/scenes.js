@@ -5,7 +5,7 @@ export {SCENE_COUNT,SCENE_LENGTH};
 const sectorLength=SCENE_LENGTH+TRANSITION_LENGTH;
 const transitionImages=['transition-1-2.jpg','transition-2-3.jpg','transition-3-4.jpg',
   'transition-4-5.jpg','transition-5-6.png',null];
-export const LEVEL3_ENTRY_STAIRS={offsets:[1.6,1.1,.6],rise:.22};
+export const LEVEL3_ENTRY_RAMP={length:26,endBefore:.6,rise:.72};
 
 export const PANELS=Array.from({length:SCENE_COUNT},(_,index)=>{
   const source=LEVELS['level'+(index+1)];
@@ -54,21 +54,22 @@ export function transitionAt(s) {
   return panelAt(s)?null:TRANSITIONS[sceneAt(s)];
 }
 export function transitionTop(transition,s) {
-  const t=Math.max(0,Math.min(1,(s-transition.start)/transition.length));
   const smooth=(value,start,end)=>{
     const x=Math.max(0,Math.min(1,(value-start)/(end-start)));
     return x*x*(3-2*x);
   };
+  if(transition.index===1) {
+    const {length,endBefore,rise}=LEVEL3_ENTRY_RAMP;
+    const end=transition.end-endBefore,start=end-length;
+    const low=transition.entryTop-rise;
+    if(s>=end) return transition.entryTop;
+    if(s>=start) return low+rise*smooth(s,start,end);
+    const approach=smooth(s,transition.start+transition.length*.28,start-2);
+    return transition.exitTop+(low-transition.exitTop)*approach;
+  }
+  const t=Math.max(0,Math.min(1,(s-transition.start)/transition.length));
   const ease=smooth(t,0,1);
   const height=transition.exitTop+(transition.entryTop-transition.exitTop)*ease;
-  if(transition.index===1) {
-    const {offsets,rise}=LEVEL3_ENTRY_STAIRS;
-    const approach=transition.entryTop-rise*offsets.length;
-    const approachHeight=height+(approach-height)*smooth(t,.48,.92);
-    // Ease the collision risers over a short distance so a walk can climb them.
-    const distance=s-transition.end;
-    return approachHeight+rise*offsets.reduce((sum,offset)=>sum+smooth(distance,-offset-.16,-offset+.16),0);
-  }
   if(transition.index===3) return height-1.1*smooth(t,.04,.65)*(1-smooth(t,.69,1));
   if(transition.index===4) return height-.25*Math.sin(Math.PI*t)**2;
   return height;

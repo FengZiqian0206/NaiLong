@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import LEVELS from './assets/levels.json' with {type:'json'};
 import {WORLD,samplePath} from './world.js';
-import {SCENE_COUNT,SCENE_LENGTH,TRANSITIONS,PANELS,COLLIDERS,LEVEL3_ENTRY_STAIRS,
-  panelAt,sceneAt,transitionAt,transitionTop,worldAt,floorPoint} from './scenes.js?v=20261127c';
-import {nearestSurface} from './physics.js';
+import {SCENE_COUNT,SCENE_LENGTH,TRANSITIONS,PANELS,COLLIDERS,LEVEL3_ENTRY_RAMP,
+  panelAt,sceneAt,transitionAt,transitionTop,worldAt,floorPoint} from './scenes.js?v=20261127e';
+import {nearestSurface} from './physics.js?v=20261127e';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8);
 assert.equal(SCENE_COUNT,6);
@@ -64,13 +64,26 @@ assert.deepEqual(LEVELS.level4.platforms,[{x1:0,y1:624.5,x2:2163,y2:624.5,halfTh
 assert.ok(LEVELS.level6.platforms.some(line=>line.y1!==line.y2),'the final bridge follows its painted arch');
 
 const courtyardGate=TRANSITIONS[1];
-const {offsets,rise}=LEVEL3_ENTRY_STAIRS;
-assert.deepEqual(offsets,[1.6,1.1,.6]);
-for(const [index,offset] of offsets.entries()) {
-  const center=courtyardGate.end-offset;
-  close(transitionTop(courtyardGate,center-.18),courtyardGate.entryTop-rise*(offsets.length-index));
-  close(transitionTop(courtyardGate,center+.18),courtyardGate.entryTop-rise*(offsets.length-index-1));
+const {length,endBefore,rise}=LEVEL3_ENTRY_RAMP;
+const rampEnd=courtyardGate.end-endBefore,rampStart=rampEnd-length;
+const low=courtyardGate.entryTop-rise;
+assert.ok(length>=24,'the uphill grade extends beyond the old stepped entrance');
+close(transitionTop(courtyardGate,courtyardGate.start),courtyardGate.exitTop);
+close(transitionTop(courtyardGate,rampStart-1),low);
+close(transitionTop(courtyardGate,rampStart),low);
+close(transitionTop(courtyardGate,rampEnd),courtyardGate.entryTop);
+close(transitionTop(courtyardGate,courtyardGate.end),courtyardGate.entryTop);
+let last=low;
+for(let step=1;step<=52;step++) {
+  const s=rampStart+length*step/52;
+  const top=transitionTop(courtyardGate,s);
+  const grade=(top-last)/(length/52);
+  assert.ok(grade>0 && grade<.045,'the ramp climbs continuously on a shallow grade');
+  last=top;
 }
+const near=.01;
+assert.ok((transitionTop(courtyardGate,rampStart+near)-low)/near<.001,'the base eases into the incline');
+assert.ok((courtyardGate.entryTop-transitionTop(courtyardGate,rampEnd-near))/near<.001,'the slope eases into the level path');
 const factoryBridge=TRANSITIONS[2];
 close(factoryBridge.exitTop,factoryBridge.entryTop);
 close(transitionTop(factoryBridge,factoryBridge.end-1),factoryBridge.entryTop);
