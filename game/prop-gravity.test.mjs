@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createFallingProp, stepFallingProp } from './prop-gravity.js';
-import { PANELS, floorPoint, worldAt } from './scenes.js?v=20261123b';
+import { PANELS, floorPoint, setCustomColliders, worldAt } from './scenes.js?v=20261127';
 import { WORLD } from './world.js?v=20261123b';
 
 const tick = 1 / 120;
@@ -31,17 +31,18 @@ test('a swept trigger starts a fall, with one player hit and a damped landing', 
   assert.ok(Math.abs(body.height - ground - 1) < 1e-6);
 });
 
-test('an elevated mask surface catches objects and an empty gap does not', () => {
+test('an added collision block catches objects and an empty gap does not', () => {
   const home = PANELS[0];
-  const ledge = home.source.platforms[1];
-  const s = (ledge.x1 + ledge.x2) / 2 * home.pixelScale;
+  const s = 17;
+  setCustomColliders([{ id: 'ledge', s, h: 3, width: 2, height: 1 }]);
   const body = createFallingProp({ s, h: 8, width: 1, height: 1,
     fallZone: { s: 12, h: 1, width: 2, height: 2 } });
   const trigger = worldAt(12, 1);
   for (let frame = 0; frame < 400; frame++) stepFallingProp(body, trigger, trigger, tick);
-  const top = (home.baseline - ledge.y1 + ledge.halfThickness) * home.pixelScale;
+  const top = 3.5;
   assert.ok(body.settled);
   assert.ok(Math.abs(body.height - top - .5) < 1e-6);
+  setCustomColliders([]);
 
   const inGap = createFallingProp({ s: 706 * home.pixelScale, h: 2, width: .6, height: 1,
     fallZone: { s: 12, h: 1, width: 2, height: 2 } });

@@ -1,5 +1,5 @@
 import { WORLD, nearestPath } from './world.js?v=20261123b';
-import { COLLIDERS, SPAWN, GOAL, SCENE_LENGTH, PANELS, floorPoint } from './scenes.js?v=20261123b';
+import { COLLIDERS, CUSTOM_COLLIDERS, SPAWN, GOAL, SCENE_LENGTH, PANELS, floorPoint, sceneAt } from './scenes.js?v=20261127';
 export { WORLD, samplePath } from './world.js?v=20261123b';
 
 const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
@@ -20,6 +20,50 @@ function rememberGround(player,ground,progress) {
   player.respawnLapProgress=player.lapProgress-distance;
 }
 
+function closestBlock(x, y, cutoff) {
+  if (!CUSTOM_COLLIDERS.length) return null;
+  const radius = Math.hypot(x, y), angle = Math.atan2(x, y), turn = Math.PI * 2;
+  let result = null;
+  for (const block of CUSTOM_COLLIDERS) {
+    const radialGap = Math.max(0, block.minimumRadius - radius, radius - block.maximumRadius);
+    if (radialGap > Math.max(0, cutoff)) continue;
+    const relativeAngle = angle - block.angle;
+    const delta = relativeAngle - turn * Math.round(relativeAngle / turn);
+    const angularGap = Math.max(0, Math.abs(delta) - block.halfAngle);
+    if (radius * Math.sin(Math.min(angularGap, Math.PI / 2)) > Math.max(0, cutoff)) continue;
+
+    // Test the exact curved ceiling/foot surfaces and the two radial side walls.
+    const inside = radialGap === 0 && angularGap === 0;
+    let closest = null, closestDistance = Infinity;
+    function consider(a, r, radialNormal, sign) {
+      const sin = Math.sin(a), cos = Math.cos(a), qx = sin * r, qy = cos * r;
+      const dx = x - qx, dy = y - qy, distance = Math.hypot(dx, dy);
+      if (distance >= closestDistance) return;
+      closestDistance = distance;
+      const normalScale = distance > 1e-9 ? (inside ? -1 : 1) / distance : 0;
+      const nx = normalScale ? dx * normalScale : sign * (radialNormal ? sin : cos);
+      const ny = normalScale ? dy * normalScale : sign * (radialNormal ? cos : -sin);
+      closest = { x: qx, y: qy, nx, ny, tx: ny, ty: -nx,
+        distance, surfaceDistance: inside ? -distance : distance, radius: 0,
+        progress: (a / turn + 1) % 1, id: block.platformId, platformId: block.platformId };
+    }
+
+    const arc = block.angle + clamp(delta, -block.halfAngle, block.halfAngle);
+    consider(arc, block.maximumRadius, true, 1);
+    consider(arc, block.minimumRadius, true, -1);
+    for (const side of [-1, 1]) {
+      const a = block.angle + side * block.halfAngle;
+      const r = clamp(radius * Math.cos(delta - side * block.halfAngle), block.minimumRadius, block.maximumRadius);
+      consider(a, r, false, side);
+    }
+    if (closest.surfaceDistance >= cutoff) continue;
+    cutoff = closest.surfaceDistance;
+    result = closest;
+  }
+  if (result) result.sceneIndex = sceneAt(result.progress * WORLD.totalLength);
+  return result;
+}
+
 export function nearestSurface(x,y) {
   let bestSurface=Infinity,bestDistance=0,best,bestT=0,qx=0,qy=0;
   // ponytail: one character scans the static mask-derived capsules. Add a
@@ -34,6 +78,8 @@ export function nearestSurface(x,y) {
     bestSurface=distance-segment.radius;bestDistance=distance;
     best=segment;bestT=t;qx=px;qy=py;
   }
+  const block = closestBlock(x, y, bestSurface);
+  if (block) return block;
   const dx=best.bx-best.ax,dy=best.by-best.ay,length=Math.hypot(dx,dy);
   const tx=length?dx/length:1,ty=length?dy/length:0;
   return {x:qx,y:qy,tx,ty,nx:bestDistance>1e-8?(x-qx)/bestDistance:-ty,

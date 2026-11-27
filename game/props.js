@@ -1,7 +1,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, nearestPath } from './world.js?v=20261123b';
-import { PANELS, worldAt } from './scenes.js?v=20261123b';
-import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261126c';
+import { PANELS, worldAt } from './scenes.js?v=20261127';
+import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127';
 
 const { ringRadius, totalLength } = WORLD;
 const reach = 3.25;

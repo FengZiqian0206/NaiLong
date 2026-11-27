@@ -1,18 +1,18 @@
-import LEVELS from './assets/levels.json?v=20261123b' with {type:'json'};
+import LEVELS from './assets/levels.json?v=20261127' with {type:'json'};
 import {WORLD,samplePath,SCENE_COUNT,SCENE_LENGTH,TRANSITION_LENGTH} from './world.js?v=20261123b';
 
 export {SCENE_COUNT,SCENE_LENGTH};
 const sectorLength=SCENE_LENGTH+TRANSITION_LENGTH;
-const placeholder={width:2172,height:724,platforms:[{x1:0,y1:558,x2:2172,y2:558,halfThickness:3}]};
+const transitionImages=['transition-1-2.jpg','transition-2-3.jpg','transition-3-4.jpg',
+  'transition-4-5.jpg','transition-5-6.png',null];
 
 export const PANELS=Array.from({length:SCENE_COUNT},(_,index)=>{
-  const level=LEVELS['level'+(index+1)];
-  const source=level ?? placeholder;
-  const floors=source.platforms.filter(line=>line.x2-line.x1>source.width*.2 && line.y1>source.height*.7);
-  const baseline=floors.reduce((sum,line)=>sum+line.y1,0)/floors.length;
+  const source=LEVELS['level'+(index+1)];
+  const floors=source.platforms.filter(line=>line.x2-line.x1>source.width*.2);
+  const baseline=source.baseline??floors.reduce((sum,line)=>sum+line.y1,0)/floors.length;
   return {index,sceneIndex:index,source,baseline,start:sectorLength*index,
     length:SCENE_LENGTH,pixelScale:SCENE_LENGTH/source.width,
-    image:level?'level'+(index+1)+'.png':null,isPlaceholder:!level};
+    image:'level'+(index+1)+'.png'};
 });
 
 function heightAt(panel,line,pixelX) {
@@ -22,8 +22,7 @@ function heightAt(panel,line,pixelX) {
 }
 
 function edgeFloor(panel,atEnd) {
-  return panel.source.platforms.filter(line=>line.x2-line.x1>panel.source.width*.2 &&
-    (atEnd?line.x2>=panel.source.width-16:line.x1<=1))
+  return panel.source.platforms.filter(line=>atEnd?line.x2>=panel.source.width-16:line.x1<=1)
     .sort((a,b)=>Math.abs(a.y1-panel.baseline)-Math.abs(b.y1-panel.baseline))[0];
 }
 
@@ -36,7 +35,7 @@ export const TRANSITIONS=PANELS.map((panel,index)=>{
   return {index,start,end,length:end-start,exitTop,entryTop,
     // The connector reaches the original mask stroke if it ends a few pixels early.
     groundStart:Math.min(start,panel.start+(exit.x2+1)*panel.pixelScale),
-    image:index<2?'transition-'+(index+1)+'-'+(index+2)+'.jpg':null};
+    image:transitionImages[index]};
 });
 
 function wrapDistance(s) {
@@ -55,8 +54,15 @@ export function transitionAt(s) {
 }
 export function transitionTop(transition,s) {
   const t=Math.max(0,Math.min(1,(s-transition.start)/transition.length));
-  const ease=t*t*(3-2*t);
-  return transition.exitTop+(transition.entryTop-transition.exitTop)*ease;
+  const smooth=(value,start,end)=>{
+    const x=Math.max(0,Math.min(1,(value-start)/(end-start)));
+    return x*x*(3-2*x);
+  };
+  const ease=transition.index===2?smooth(t,.85,1):smooth(t,0,1);
+  const height=transition.exitTop+(transition.entryTop-transition.exitTop)*ease;
+  if(transition.index===3) return height-1.1*smooth(t,.04,.65)*(1-smooth(t,.69,1));
+  if(transition.index===4) return height-.25*Math.sin(Math.PI*t)**2;
+  return height;
 }
 export function worldAt(s,h=0) {
   const path=samplePath(s/WORLD.totalLength);
@@ -64,6 +70,21 @@ export function worldAt(s,h=0) {
 }
 
 export const COLLIDERS=[];
+export const CUSTOM_COLLIDERS = [];
+
+export function setCustomColliders(blocks = []) {
+  CUSTOM_COLLIDERS.length = 0;
+  for (const block of blocks) {
+    const { id, s, h, width, height } = block ?? {};
+    const minimumRadius = WORLD.ringRadius + h - height / 2;
+    if (!id || ![s, h, width, height].every(Number.isFinite) ||
+      width < .10 || width > 48 || height < .08 || height > 20 || minimumRadius <= 1) continue;
+    const center = wrapDistance(s);
+    CUSTOM_COLLIDERS.push({ platformId: `custom:${id}`, s: center, width, h, height,
+      angle: center / WORLD.ringRadius, halfAngle: width / (2 * WORLD.ringRadius),
+      minimumRadius, maximumRadius: minimumRadius + height });
+  }
+}
 function addCollider(start,end,height,radius,metadata) {
   const add=(s0,s1,depth=0)=>{
     const a=worldAt(s0,height(s0)),b=worldAt(s1,height(s1)),mid=(s0+s1)/2;
@@ -87,18 +108,46 @@ for(const transition of TRANSITIONS) {
   addCollider(transition.groundStart,transition.end,s=>transitionTop(transition,s)-.15,.15,
     {platformId:'transition:'+transition.index,sceneIndex:transition.index,tileIndex:-1,platformIndex:-1});
 }
+
+function standAboveGround(s, top) {
+  let low = top + WORLD.radius;
+  const nearby = COLLIDERS.filter(segment => {
+    const delta = s - (segment.s0 + segment.s1) / 2;
+    return Math.abs(delta - WORLD.totalLength * Math.round(delta / WORLD.totalLength)) < 3;
+  });
+  function overlaps(point) {
+    return nearby.some(({ ax, ay, bx, by, radius }) => {
+      const dx = bx - ax, dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((point.x - ax) * dx + (point.y - ay) * dy) / (dx * dx + dy * dy)));
+      return (point.x - ax - t * dx) ** 2 + (point.y - ay - t * dy) ** 2 < (WORLD.radius + radius - 1e-9) ** 2;
+    });
+  }
+  const point = worldAt(s, low);
+  if (!overlaps(point)) return point;
+  // At a grade, a player centered directly above the floor needs additional
+  // radial clearance to touch it along the slope's normal.
+  let high = low + 2;
+  for (let i = 0; i < 22; i++) {
+    const mid = (low + high) / 2;
+    if (overlaps(worldAt(s, mid))) low = mid;
+    else high = mid;
+  }
+  return worldAt(s, high);
+}
+
 export function floorPoint(s) {
   s=wrapDistance(s);
   const transition=transitionAt(s);
-  if(transition) return worldAt(s,transitionTop(transition,s)+WORLD.radius);
+  if(transition) return standAboveGround(s, transitionTop(transition,s));
   const panel=panelAt(s);
   const px=(s-panel.start)/panel.pixelScale;
   const floor=panel.source.platforms.filter(line=>line.x1-1e-8<=px && line.x2+1e-8>=px)
     .sort((a,b)=>Math.abs(heightAt(panel,a,px))-Math.abs(heightAt(panel,b,px)))[0];
-  if(floor) return worldAt(s,heightAt(panel,floor,px)+floor.halfThickness*panel.pixelScale+WORLD.radius);
+  if(floor) return standAboveGround(s, heightAt(panel,floor,px)+floor.halfThickness*panel.pixelScale);
   const connector=TRANSITIONS[panel.index];
-  if(s>=connector.groundStart) return worldAt(s,connector.exitTop+WORLD.radius);
+  if(s>=connector.groundStart) return standAboveGround(s, connector.exitTop);
   throw new RangeError('The requested route position is in a mask gap.');
 }
 export const SPAWN=floorPoint(.8);
-export const GOAL=floorPoint(WORLD.totalLength-.8);
+const finalPanel = PANELS.at(-1);
+export const GOAL=floorPoint(finalPanel.start + finalPanel.length - .8);

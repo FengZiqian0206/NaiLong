@@ -1,14 +1,31 @@
 import { WORLD } from './world.js?v=20261123b';
+import { createColliderEditor } from './collider-editor.js?v=20261127';
 
 const MIN_SIZE = 0.35;
 const MAX_SIZE = 18;
 const DEFAULT_WIDTH = 2.8;
 const STORE = 'placed-props';
+const BLOCK_DRAFT = '!collision-blocks';
 const LANGUAGE_KEY = 'nailong-editor-language';
 const POPUP_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const missingPopup = prop => prop?.interactive !== false && prop?.behavior === 'image' && !prop.popupImage;
 const chinese = {
   'Prop editor': '物品编辑器',
+  'Editing tool': '编辑工具',
+  'Objects': '物品',
+  'Collision blocks': '碰撞块',
+  'Add collision block': '添加碰撞块',
+  'Cancel placement': '取消放置',
+  'Placed block': '已放置的碰撞块',
+  'Collision block width': '碰撞块宽度',
+  'Collision block height': '碰撞块高度',
+  'Collision block': '碰撞块',
+  'Select a block': '选择碰撞块',
+  'No blocks placed': '还没有碰撞块',
+  'Add a collision block or select one in the scene.': '添加碰撞块，或在场景中选中已有的块。',
+  'Click to place a block or drag out its size.': '点击场景放置碰撞块，或拖出所需大小。',
+  'Drag the block to move it. Edit its width and height here.': '拖动碰撞块可改变位置，也可在面板中修改宽高。',
+  'Block changed. Save to keep it.': '已修改碰撞块。请保存这次修改。',
   'Close': '关闭',
   'Add PNG': '添加 PNG',
   'Save locally': '保存草稿',
@@ -120,10 +137,11 @@ async function usePropStorage(database, mode, operation) {
 export function createPropEditor({
   root, canvas, getPoint, addProp, pickProp, editProp, removeProp, selectProp, restoreProps, clearInput,
   loadSharedProps, publishSharedProps, defaultProps = [], previewZone = () => {},
+  setCollisionBlocks = () => {}, previewCollisionBlocks = () => {},
 }) {
   const stylesheet = document.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-editor.css?v=20261126c', import.meta.url);
+  stylesheet.href = new URL('./prop-editor.css?v=20261127', import.meta.url);
   document.head.append(stylesheet);
 
   const panel = document.createElement('section');
@@ -138,6 +156,10 @@ export function createPropEditor({
         <button type="button" data-action="close" data-text="Close">Close</button>
       </div>
     </header>
+    <div class="prop-editor-tools" role="group" data-aria="Editing tool">
+      <button type="button" data-tool="objects" data-text="Objects" aria-pressed="true">Objects</button>
+      <button type="button" data-tool="blocks" data-text="Collision blocks" aria-pressed="false">Collision blocks</button>
+    </div>
     <div class="prop-editor-actions">
       <button type="button" data-action="file" data-text="Add PNG">Add PNG</button>
       <button type="button" data-action="save" data-text="Save locally" disabled>Save locally</button>
@@ -155,6 +177,7 @@ export function createPropEditor({
         <button type="button" data-action="cancel-publish" data-text="Cancel">Cancel</button>
       </div>
     </form>
+    <div class="prop-editor-objects">
     <label><span data-text="Placed object">Placed object</span>
       <select name="prop" disabled></select>
     </label>
@@ -198,6 +221,8 @@ export function createPropEditor({
         <button type="button" data-action="clear-zone" data-text="Clear zone" hidden>Clear zone</button>
       </div>
     </div>
+    </div>
+    <div class="prop-editor-blocks" hidden></div>
     <p role="status" aria-live="polite">Loading saved objects…</p>`;
   root.append(panel);
   const button = (action) => panel.querySelector(`[data-action="${action}"]`);
@@ -227,6 +252,9 @@ export function createPropEditor({
   }));
   const propList = panel.querySelector('[name=prop]');
   const status = panel.querySelector('[role=status]');
+  const tools = [...panel.querySelectorAll('[data-tool]')];
+  const objectsPanel = panel.querySelector('.prop-editor-objects');
+  const blocksPanel = panel.querySelector('.prop-editor-blocks');
 
   const definitions = new Map();
   const edits = new Map();
@@ -237,12 +265,22 @@ export function createPropEditor({
   let sharedIds = new Set();
   let selectedId = null, pendingFile = null, drag = null, placing = false, drawingZone = false;
   let popupTarget = null, preparingPopup = false;
+  let tool = 'objects', collisionBlocks = [];
   let locale = 'zh-CN', currentHint = 'Loading saved objects…';
   try {
     if (localStorage.getItem(LANGUAGE_KEY) === 'en') locale = 'en';
   } catch { /* Browser storage might be unavailable. */ }
   const t = message => (locale === 'zh-CN' && chinese[message]) || message;
   const propName = prop => (locale === 'zh-CN' && prop.nameZh) || prop.name || t('PNG object');
+  const collisionTool = createColliderEditor({
+    host: blocksPanel, canvas, getPoint, t, hint: setHint, preview: previewCollisionBlocks,
+    onChange(blocks) {
+      collisionBlocks = blocks;
+      edits.set(BLOCK_DRAFT, { id: BLOCK_DRAFT, blocks });
+      setCollisionBlocks(blocks);
+      syncControls();
+    },
+  });
 
   globalButton.hidden = !publishSharedProps;
   const hasMissingImage = objects => [...objects].some(missingPopup);
@@ -251,6 +289,7 @@ export function createPropEditor({
       !drawingZone && Boolean(edits.size || savedDrafts.size) && !hasMissingImage(definitions.values());
   }
   function defaultHint() {
+    if (tool === 'blocks') return collisionTool.hint();
     if (drawingZone) return 'Drag on the scene to draw the trigger zone.';
     if (pendingFile) return 'Click the scene to place {name}.';
     if (preparingPopup) return 'Checking popup image…';
@@ -266,7 +305,7 @@ export function createPropEditor({
 
   function propagatePreview() {
     const prop = definitions.get(selectedId);
-    previewZone(active && prop?.interactive !== false ? (drag?.zone ?? prop?.fallZone ?? null) : null);
+    previewZone(active && tool === 'objects' && prop?.interactive !== false ? (drag?.zone ?? prop?.fallZone ?? null) : null);
   }
 
   function setLanguage() {
@@ -276,6 +315,7 @@ export function createPropEditor({
     languageButton.textContent = locale === 'zh-CN' ? 'EN' : '中文';
     languageButton.setAttribute('aria-label', locale === 'zh-CN' ? '切换到英文' : 'Switch editor to Chinese');
     listProps();
+    collisionTool.render();
     setHint(currentHint);
   }
 
@@ -348,6 +388,9 @@ export function createPropEditor({
       output.value = Number.isFinite(size) ? Number(size.toFixed(2)).toString() : '';
     }
     fileButton.disabled = !loaded || saving || placing;
+    fileButton.hidden = tool === 'blocks';
+    for (const option of tools) option.disabled = saving || placing || preparingPopup;
+    collisionTool.setState({ active: active && tool === 'blocks', disabled: !loaded || saving });
     saveButton.disabled = !localLoaded || !loaded || saving || preparingPopup || drawingZone || !edits.size || hasMissingImage(edits.values());
     globalButton.disabled = button('publish').disabled = !canPublish();
     button('cancel-publish').disabled = saving;
@@ -375,7 +418,7 @@ export function createPropEditor({
       drawingZone = false;
     }
     selectedId = next;
-    selectProp(active ? selectedId : null);
+    selectProp(active && tool === 'objects' ? selectedId : null);
     listDependencies();
     propagatePreview();
     syncControls();
@@ -469,7 +512,7 @@ export function createPropEditor({
     syncControls();
     setHint('Publishing layout…');
     try {
-      const published = await publishSharedProps(layout, sharedRevision, token);
+      const published = await publishSharedProps(layout, sharedRevision, token, collisionBlocks);
       sharedRevision = published.revision;
       sharedIds = new Set(published.props.map(prop => prop.id));
       edits.clear();
@@ -516,7 +559,7 @@ export function createPropEditor({
       drawingZone = false;
       showPublishForm(false);
     }
-    selectProp(active ? selectedId : null);
+    selectProp(active && tool === 'objects' ? selectedId : null);
     propagatePreview();
     syncControls();
     if (active && loaded) {
@@ -568,6 +611,20 @@ export function createPropEditor({
     globalButton.focus();
   });
   button('close').addEventListener('click', toggle);
+  for (const option of tools) option.addEventListener('click', () => {
+    if (tool === option.dataset.tool) return;
+    stopDrag();
+    drawingZone = false;
+    pendingFile = null;
+    tool = option.dataset.tool;
+    objectsPanel.hidden = tool !== 'objects';
+    blocksPanel.hidden = tool !== 'blocks';
+    for (const button of tools) button.setAttribute('aria-pressed', String(button === option));
+    selectProp(active && tool === 'objects' ? selectedId : null);
+    propagatePreview();
+    syncControls();
+    setHint(!loaded ? 'Loading saved objects…' : loadMessage || undefined);
+  });
   languageButton.addEventListener('click', () => {
     locale = locale === 'zh-CN' ? 'en' : 'zh-CN';
     try { localStorage.setItem(LANGUAGE_KEY, locale); }
@@ -669,7 +726,7 @@ export function createPropEditor({
   panel.addEventListener('focusin', clearInput);
 
   canvas.addEventListener('pointerdown', (event) => {
-    if (!active || !loaded || placing || saving || event.button !== 0) return;
+    if (!active || tool !== 'objects' || !loaded || placing || saving || event.button !== 0) return;
     const point = getPoint(event.clientX, event.clientY);
     if (!point) return;
     if (drawingZone && selectedId) {
@@ -730,14 +787,19 @@ export function createPropEditor({
       localLoaded = local.status === 'fulfilled';
       sharedLoaded = shared.status === 'fulfilled';
       const published = sharedLoaded ? shared.value.props : defaultProps;
+      collisionBlocks = sharedLoaded ? shared.value.blocks ?? [] : [];
       sharedRevision = sharedLoaded ? shared.value.revision : null;
       sharedIds = new Set(published.map(prop => prop.id));
       const merged = new Map(published.map(prop => [prop.id, prop]));
       for (const draft of localLoaded ? local.value : []) {
         savedDrafts.set(draft.id, draft.draftVersion);
-        if (draft.deleted) merged.delete(draft.id);
+        if (draft.id === BLOCK_DRAFT) {
+          if (Array.isArray(draft.blocks)) collisionBlocks = draft.blocks;
+        } else if (draft.deleted) merged.delete(draft.id);
         else merged.set(draft.id, draft);
       }
+      collisionTool.setBlocks(collisionBlocks);
+      setCollisionBlocks(collisionBlocks);
       const layout = [...merged.values()];
       const restored = await restoreProps(layout) ?? layout;
       for (const definition of restored) definitions.set(definition.id, definition);

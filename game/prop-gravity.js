@@ -1,4 +1,4 @@
-import { COLLIDERS } from './scenes.js?v=20261123b';
+import { COLLIDERS, CUSTOM_COLLIDERS } from './scenes.js?v=20261127';
 import { WORLD } from './world.js?v=20261123b';
 
 const { ringRadius, totalLength } = WORLD;
@@ -45,6 +45,11 @@ function landingHeight(body) {
     const contact = first < last ? Math.min(end, body.halfWidth) : Math.max(start, -body.halfWidth);
     const fraction = Math.min(1, Math.max(0, (contact - start) / span));
     const top = first + (last - first) * fraction + segment.radius;
+    if (top <= bottom + .025) highest = Math.max(highest, top);
+  }
+  for (const block of CUSTOM_COLLIDERS) {
+    if (Math.abs(routeDelta(block.s, body.s)) > block.width / 2 + body.halfWidth) continue;
+    const top = block.maximumRadius - ringRadius;
     if (top <= bottom + .025) highest = Math.max(highest, top);
   }
   return highest + body.halfHeight;

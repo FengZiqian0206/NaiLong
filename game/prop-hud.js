@@ -2,7 +2,7 @@ export function createPropHud(root) {
   const doc = root.ownerDocument;
   const stylesheet = doc.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-hud.css?v=20261126c', import.meta.url);
+  stylesheet.href = new URL('./prop-hud.css?v=20261127', import.meta.url);
   doc.head.append(stylesheet);
 
   const inventory = doc.createElement('ul');
@@ -15,7 +15,8 @@ export function createPropHud(root) {
   prompt.className = 'prop-prompt';
   prompt.setAttribute('role', 'img');
   prompt.hidden = true;
-  root.append(inventory, prompt);
+  root.querySelector('#right-hud').append(inventory);
+  root.append(prompt);
 
   const collected = new Map();
 

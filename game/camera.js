@@ -43,25 +43,32 @@ export function updateCameraPose(pose, player, dt, viewHeight = 28) {
   return placeCamera(pose, ground, viewHeight);
 }
 
-export function frameRouteEnds(pose, viewWidth, viewHeight) {
+export function frameRouteEnds(pose, viewWidth, viewHeight, endProgress = 1) {
   const halfWidth = viewWidth / 2, halfHeight = viewHeight / 2;
-  const distance = Math.min(pose.progress, 1 - pose.progress) * WORLD.totalLength;
+  const startDistance = pose.progress * WORLD.totalLength;
+  const endDistance = (endProgress - pose.progress) * WORLD.totalLength;
+  const atStart = startDistance < endDistance;
+  const distance = atStart ? startDistance : endDistance;
   const limit = Math.min(WORLD.totalLength / 8, .9 * viewWidth + halfHeight);
   if (distance >= limit) return pose;
 
-  // Level 1 and the last road share a meridian. Level the view near it,
-  // then keep the whole rotated view on the current side of the seam.
+  // Level the view at the corresponding radial edge, then keep the entire
+  // rotated viewport on the playable side of that edge.
   const fadeStart = Math.min(limit * .7, halfWidth);
   const t = Math.max(0, (distance - fadeStart) / (limit - fadeStart));
   const blend = t * t * (3 - 2 * t);
-  const tilt = Math.atan2(Math.sin(pose.angle), Math.cos(pose.angle));
+  const boundaryAngle = atStart ? 0 : -2 * Math.PI * endProgress;
+  const diff = pose.angle - boundaryAngle;
+  const tilt = Math.atan2(Math.sin(diff), Math.cos(diff));
   const framed = placeCamera({ ...pose, angle: pose.angle - tilt * (1 - blend) }, samplePath(pose.progress), viewHeight);
-  const side = pose.progress < .5 ? 1 : -1;
-  const c = Math.cos(framed.angle), s = Math.sin(framed.angle);
-  const edge = halfWidth * c + halfHeight * Math.abs(s);
-  const shift = Math.max(0, edge - side * framed.x) * side;
-  framed.x += shift;
-  framed.y += shift * s / c;
+  const side = atStart ? 1 : -1;
+  const delta = framed.angle - boundaryAngle;
+  const angleCos = Math.cos(delta);
+  const edge = halfWidth * angleCos + halfHeight * Math.abs(Math.sin(delta));
+  const center = framed.x * Math.cos(boundaryAngle) + framed.y * Math.sin(boundaryAngle);
+  const shift = Math.max(0, edge - side * center) * side / angleCos;
+  framed.x += Math.cos(framed.angle) * shift;
+  framed.y += Math.sin(framed.angle) * shift;
   framed.progress = nearestPath(framed.x, framed.y).progress;
   return framed;
 }

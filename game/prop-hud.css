@@ -1,19 +1,15 @@
 .prop-inventory {
   --slot-size: 44px;
-  --safe-top: calc(185px + env(safe-area-inset-top));
-  --safe-bottom: calc(58px + env(safe-area-inset-bottom));
-  position: absolute;
-  z-index: 1;
-  inset-block-start: var(--safe-top);
-  inset-inline-end: max(10px, calc(5px + env(safe-area-inset-right)));
+  align-self: end;
   width: var(--slot-size);
-  max-height: max(0px, calc(100dvh - var(--safe-top) - var(--safe-bottom)));
+  min-height: 0;
   margin: 0;
   padding: 0;
   display: grid;
   grid-auto-rows: var(--slot-size);
   gap: 6px;
   overflow-y: auto;
+  pointer-events: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
   list-style: none;
@@ -60,8 +56,8 @@
   pointer-events: none;
 }
 
-.prop-inventory:not([hidden]) + .prop-prompt {
-  --right-clearance: 70px;
+#game:has(.prop-inventory:not([hidden])) .prop-prompt {
+  --right-clearance: 80px;
 }
 
 .prop-prompt-blocked {
@@ -74,7 +70,5 @@
 @media (max-width: 760px) {
   .prop-inventory {
     --slot-size: 38px;
-    --safe-top: calc(136px + env(safe-area-inset-top));
-    --safe-bottom: calc(88px + env(safe-area-inset-bottom));
   }
 }

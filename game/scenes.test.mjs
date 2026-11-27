@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import LEVELS from './assets/levels.json' with {type:'json'};
 import {WORLD,samplePath} from './world.js';
 import {SCENE_COUNT,SCENE_LENGTH,TRANSITIONS,PANELS,COLLIDERS,
-  panelAt,sceneAt,transitionAt,worldAt,floorPoint} from './scenes.js';
+  panelAt,sceneAt,transitionAt,worldAt,floorPoint} from './scenes.js?v=20261127';
 import {nearestSurface} from './physics.js';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8);
@@ -12,9 +12,9 @@ assert.equal(TRANSITIONS.length,6);
 close(SCENE_LENGTH,101.00626436394589);
 close(6*SCENE_LENGTH*(1+1380/2172),WORLD.totalLength);
 assert.deepEqual(PANELS.map(panel=>panel.image),
-  ['level1.png','level2.png','level3.png','level4.png',null,null]);
+  ['level1.png','level2.png','level3.png','level4.png','level5.png','level6.png']);
 assert.deepEqual(TRANSITIONS.map(transition=>transition.image),
-  ['transition-1-2.jpg','transition-2-3.jpg',null,null,null,null]);
+  ['transition-1-2.jpg','transition-2-3.jpg','transition-3-4.jpg','transition-4-5.jpg','transition-5-6.png',null]);
 assert.strictEqual(panelAt(WORLD.totalLength),PANELS[0]);
 
 const groups=new Map();
@@ -29,9 +29,7 @@ for(const [index,panel] of PANELS.entries()) {
   const center=panel.start+panel.length/2;
   assert.strictEqual(panelAt(center),panel);
   assert.equal(sceneAt(center),index);
-  assert.equal(panel.isPlaceholder,index>=4);
-  if(index<4) assert.deepEqual(panel.source,LEVELS['level'+(index+1)]);
-  else assert.equal(panel.source.platforms.length,1);
+  assert.deepEqual(panel.source,LEVELS['level'+(index+1)]);
   expectedGroups+=panel.source.platforms.length;
   for(const [lineIndex,line] of panel.source.platforms.entries()) {
     const parts=groups.get(index+':'+lineIndex);
@@ -44,7 +42,7 @@ for(const [index,panel] of PANELS.entries()) {
       close(part.radius,line.halfThickness*panel.pixelScale);
       previous=part.s1;
     }
-    // Endpoint heights must follow each original stroke, including sloped stairs.
+    // Endpoint heights follow the masked ground or the drawn bridge's deck.
     for(const [px,y,part,endpoint] of [
       [line.x1,line.y1,parts[0],'a'],[line.x2,line.y2,parts.at(-1),'b'],
     ]) {
@@ -62,11 +60,11 @@ for(const pixelX of [750,1458]) {
 }
 assert.equal(LEVELS.level3.platforms.length,1);
 assert.equal(LEVELS.level3.platforms[0].x2,LEVELS.level3.width);
-assert.equal(LEVELS.level4.platforms.filter(line=>line.y1!==line.y2).length,2);
+assert.equal(LEVELS.level4.platforms.length,2,'only the entrance grade and floor remain in level four');
+assert.ok(LEVELS.level6.platforms.some(line=>line.y1!==line.y2),'the final bridge follows its painted arch');
 
 function floorCollider(panel,atEnd) {
-  const lineIndex=panel.source.platforms.findIndex(line=>line.x2-line.x1>panel.source.width*.2 &&
-    (atEnd?line.x2>=panel.source.width-16:line.x1===0));
+  const lineIndex=panel.source.platforms.findIndex(line=>atEnd?line.x2>=panel.source.width-16:line.x1===0);
   const parts=groups.get(panel.index+':'+lineIndex);
   return atEnd?parts.at(-1):parts[0];
 }
@@ -93,4 +91,4 @@ for(const transition of TRANSITIONS) {
       'connector touches both source floors, including the ring seam');
   }
 }
-console.log('Six equal scene slots, four distinct images, two illustrated connectors and all six ground joins verified.');
+console.log('Six illustrated scenes, five illustrated connectors and all six floor joins verified.');

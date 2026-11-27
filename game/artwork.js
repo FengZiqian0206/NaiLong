@@ -1,10 +1,10 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {WORLD} from './world.js?v=20261123b';
-import {PANELS,TRANSITIONS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261123b';
+import {PANELS,TRANSITIONS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127';
 
 const edgeBlend=1.2;
-// Let the illustrated approach reach the top of its curb before revealing level 3.
-const fairgroundLead=1.7;
+// Keep the illustrated curbs/steps through the first few columns of their destination.
+const panelLead=[0,0,1.7,2.6,0,0];
 // Pixel landmarks measured in the transition plate and its neighboring level.
 // Keep these local registrations through the blend so each prop appears once.
 const registrations=[
@@ -12,9 +12,32 @@ const registrations=[
    {x:1916.5,y:593.5,levelY:542,sx:1.094,sy:1.094}],
   [{x:491.5,y:596,levelY:542,sx:1.110,sy:1.107},
    {x:1919.5,y:582.5,levelY:532,sx:1.096,sy:1.094}],
+  [{x:523,y:580,levelY:532,sx:1.093,sy:1.095},
+   {x:1855,y:676,levelY:621.5,sx:1.097,sy:1.093}],
+  [{x:574,y:679,levelY:621.5,sx:1.098,sy:1.097},
+   {x:1804,y:605,levelY:551,sx:1.097,sy:1.097}],
+  [{x:526,y:547,levelY:551,sx:1.028,sy:1.009},
+   {x:1658,y:555,levelY:548,sx:1.027,sy:1.008}],
 ];
+// Pixel rows along the actual path through the new illustrations. Leaving the
+// stairs on the back of the 5–6 crossing in the art keeps the front rim walkable.
+const roadProfiles={
+  2:[[605,574],[760,573],[1715,575],[1765,576],[1804,609],[1827,613]],
+  3:[[610,666],[1424,666],[1538,652],[1665,644],[1740,626],[1785,608]],
+  4:[[602,550],[1060,553],[1300,555],[1560,555]],
+};
+function rowAlongRoad(anchors,x) {
+  if(x<=anchors[0][0]) return anchors[0][1];
+  for(let i=1;i<anchors.length;i++) {
+    const [right,row]=anchors[i];
+    if(x>right) continue;
+    const [left,previous]=anchors[i-1];
+    return THREE.MathUtils.lerp(previous,row,THREE.MathUtils.smoothstep(x,left,right));
+  }
+  return anchors.at(-1)[1];
+}
 const edgePaint=`
-  vec4 continuedPaint(sampler2D art,vec2 uv,float outdoor){
+  vec4 continuedPaint(sampler2D art,vec2 uv,float outdoor,float garden){
     float outside=max(-uv.y,uv.y-1.);
     vec4 paint=texture2D(art,uv);
     if(outside>0.){
@@ -27,6 +50,8 @@ const edgePaint=`
       // extended area becomes large enough to look like stretched paint.
       vec3 ceiling=mix(vec3(.115,.105,.114),vec3(.12,.24,.235),outdoor);
       vec3 foundation=mix(vec3(.031,.047,.056),vec3(.026,.047,.085),outdoor);
+      ceiling=mix(ceiling,mix(vec3(.27,.23,.38),vec3(.27,.47,.49),outdoor),garden);
+      foundation=mix(foundation,vec3(.044,.057,.13),garden);
       vec3 distant=uv.y>1.?ceiling:foundation;
       paint.rgb=mix(paint.rgb,distant,smoothstep(.045,.34,outside));
     }
@@ -34,11 +59,29 @@ const edgePaint=`
   }`;
 const transitionPaint=`
   uniform sampler2D art;
-  uniform float overscan;
+  uniform float overscan,garden,transitionIndex;
+  uniform vec2 paintedEdges;
   ${edgePaint}
   vec4 paint(vec2 uv){
     uv.y=uv.y*(1.+2.*overscan)-overscan;
-    vec4 color=continuedPaint(art,uv,1.);
+    vec4 color=continuedPaint(art,uv,1.,garden);
+    // The neighboring paintings use different exposure even at landmarks
+    // they share. Match the common colors near each edge before the dissolve.
+    float left=1.-smoothstep(paintedEdges.x,paintedEdges.x+.075,uv.x);
+    float right=smoothstep(paintedEdges.y-.075,paintedEdges.y,uv.x);
+    if(transitionIndex==3.){
+      float redSky=smoothstep(.16,.65,color.r);
+      vec3 redGrade=max(color.rgb+redSky*vec3(.08,-.029,-.013),0.);
+      color.rgb=mix(color.rgb,redGrade,left);
+      float blueWall=smoothstep(.015,.065,color.b-color.r);
+      color.rgb*=mix(vec3(1.),vec3(.55,1.04,1.04),right*blueWall);
+    }
+    if(transitionIndex==4.){
+      vec3 wallGrade=color.rgb*vec3(1.,.62,.62)+vec3(.004,0.,0.);
+      vec3 skyGrade=color.rgb+vec3(.012,.027,.024);
+      color.rgb=mix(color.rgb,mix(wallGrade,skyGrade,smoothstep(.51,.79,uv.y)),left);
+      color.rgb*=mix(vec3(1.),vec3(.82,1.07,.85),right);
+    }
     float band=smoothstep(0.,.07,uv.y)*(1.-smoothstep(.97,1.,uv.y));
     color.a*=mix(band,1.,step(.001,overscan)*(1.-smoothstep(.73,.80,uv.x)));
     return color;
@@ -120,24 +163,26 @@ export async function addArtwork(scene) {
     const artHeight=source.height*pixelScale;
     // An edge-framed view looks farther across the curved room than a centered
     // view. Continue its ceiling and foundation outside the painted strip.
-    const above=index===0?62:0,below=index===0?36:0;
+    const endpoint=index===0||index===PANELS.length-1;
+    const above=endpoint?62:0,below=endpoint?36:0;
     meshStrip(start,end,()=>[(baseline-source.height)*pixelScale-below,baseline*pixelScale+above],{
       art:{value:map.art},
       mask:{value:map.mask??map.art},
       hasMask:{value:Number(Boolean(map.mask))},
       sourceBand:{value:new THREE.Vector2(1+(above+below)/artHeight,-below/artHeight)},
       fadeIn:{value:previous.image?edgeBlend/length:0},
-      fadeDelay:{value:index===2?fairgroundLead/length:0},
+      fadeDelay:{value:panelLead[index]/length},
       fadeOut:{value:next.image?edgeBlend/length:0},
       floorUV:{value:1-baseline/source.height},
+      garden:{value:Number(index===PANELS.length-1)},
     },`
       uniform sampler2D art,mask;
-      uniform float hasMask,fadeIn,fadeDelay,fadeOut,floorUV;
+      uniform float hasMask,fadeIn,fadeDelay,fadeOut,floorUV,garden;
       uniform vec2 sourceBand;
       ${edgePaint}
       vec4 paint(vec2 uv){
         uv.y=uv.y*sourceBand.x+sourceBand.y;
-        vec4 color=continuedPaint(art,uv,smoothstep(.46,.81,uv.x));
+        vec4 color=continuedPaint(art,uv,smoothstep(.46,.81,uv.x),garden);
         float edgeFade=(fadeIn>0.?smoothstep(fadeDelay,fadeDelay+fadeIn,uv.x):1.)*
           (fadeOut>0.?smoothstep(0.,fadeOut,1.-uv.x):1.);
         float black=min(texture2D(mask,uv).r,
@@ -166,11 +211,12 @@ export async function addArtwork(scene) {
     const {width,height}=bridges[index].image;
     const {length,exitTop,entryTop}=transition;
     const startRow=entry.y+entry.sy*(before.baseline-exitTop/pixelScale-entry.levelY);
-    const endRow=exit.y+exit.sy*(after.baseline-entryTop/pixelScale-exit.levelY);
-    const leftRate=entry.sx/pixelScale,rightRate=exit.sx/pixelScale;
+    const endRow=exit.y+exit.sy*(after.baseline-entryTop/after.pixelScale-exit.levelY);
+    const leftRate=entry.sx/pixelScale,rightRate=exit.sx/after.pixelScale;
     const averageRate=(exit.x-entry.x)/length;
-    const extra=index===1?fairgroundLead:0;
+    const extra=panelLead[index+1];
     const overscan=index===0?1.65:0;
+    const road=roadProfiles[index]&&[[entry.x,startRow],...roadProfiles[index],[exit.x,endRow]];
     meshStrip(start-edgeBlend,end+extra+edgeBlend,s=>{
       const t=THREE.MathUtils.clamp((s-start)/length,0,1);
       // Preserve the scale at each join and distribute the width adjustment
@@ -179,11 +225,13 @@ export async function addArtwork(scene) {
         ((1-t)*(leftRate-averageRate)-t*(rightRate-averageRate));
       if(s<start) sourceX=entry.x+(s-start)*leftRate;
       if(s>end) sourceX=exit.x+(s-end)*rightRate;
-      const verticalScale=pixelScale/THREE.MathUtils.lerp(entry.sy,exit.sy,t);
+      const verticalScale=THREE.MathUtils.lerp(pixelScale/entry.sy,after.pixelScale/exit.sy,t);
       const middleRow=index===0?THREE.MathUtils.lerp(607,601,t):598;
       const roadIn=THREE.MathUtils.lerp(startRow,middleRow,THREE.MathUtils.smoothstep(s,start,start+5));
       let roadRow;
-      if(index===1) {
+      if(road) {
+        roadRow=rowAlongRoad(road,sourceX);
+      } else if(index===1) {
         // The pale curb stays at row 598 up to x=1928 and rises to the
         // fairground pavement at x=1949. Follow that painted edge directly.
         const curb=THREE.MathUtils.lerp(roadIn,581,THREE.MathUtils.smoothstep(sourceX,1928,1949));
@@ -194,10 +242,16 @@ export async function addArtwork(scene) {
       const ceiling=top(s)+roadRow*verticalScale;
       const artHeight=height*verticalScale;
       return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width];
-    },{art:{value:bridges[index]},overscan:{value:overscan}},transitionPaint,-2);
+    },{
+      art:{value:bridges[index]},
+      overscan:{value:overscan},
+      garden:{value:Number(index===4)},
+      transitionIndex:{value:index},
+      paintedEdges:{value:new THREE.Vector2(entry.x/width,exit.x/width)},
+    },transitionPaint,-2);
   }
 
-  const colors=['#9bb3a1','#83bce9','#302238','#0b2231','#c7cdc0','#c7cdc0'].map(color=>new THREE.Color(color));
+  const colors=['#9bb3a1','#83bce9','#302238','#0b2231','#163e53','#51486e'].map(color=>new THREE.Color(color));
   return (progress,width,height,viewProgress=progress)=>{
     const s=progress*WORLD.totalLength, viewS=viewProgress*WORLD.totalLength;
     const visibleRadius=Math.max(width*.65,height*.55)+10;

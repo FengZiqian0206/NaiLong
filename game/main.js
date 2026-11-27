@@ -1,17 +1,18 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261126c';
-import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261126';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127';
+import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
-import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt } from './scenes.js?v=20261123b';
-import { addArtwork } from './artwork.js?v=20261126';
-import { createCharacter } from './character.js?v=20261126';
-import { createCharacterActions } from './character-actions.js?v=20261126c';
+import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127';
+import { addArtwork } from './artwork.js?v=20261127';
+import { createCharacter } from './character.js?v=20261127';
+import { createCharacterActions } from './character-actions.js?v=20261127';
 import { createFeedback } from './feedback.js?v=20261124c';
-import { createProps, propPoint } from './props.js?v=20261126c';
-import { createPropEditor } from './prop-editor.js?v=20261126c';
+import { createProps, propPoint } from './props.js?v=20261127';
+import { createPropEditor } from './prop-editor.js?v=20261127';
 import { createPropPopup } from './prop-popup.js?v=20261126b';
-import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261126c';
-import { createPropHud } from './prop-hud.js?v=20261126c';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127';
+import { createPropHud } from './prop-hud.js?v=20261127';
+import { createColliderPreview } from './collider-preview.js?v=20261127';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -29,12 +30,14 @@ const camera = new THREE.OrthographicCamera(-60, 60, 35, -35, .1, 200);
 camera.position.z = 100;
 const parameters = new URLSearchParams(location.search);
 const debug = parameters.has('debug');
+const routeEnd = PANELS.at(-1).start + PANELS.at(-1).length;
+const endProgress = routeEnd / WORLD.totalLength;
 const player = createPlayer({ bounded: true });
 if (debug) {
   const panel = parameters.has('panel') ? PANELS[Number(parameters.get('panel'))] : null;
   const transition = parameters.has('transition') ? TRANSITIONS[Number(parameters.get('transition') || 1) - 1] : null;
   if (panel || transition) {
-    const s = transition ? (transition.start + transition.end) / 2
+    const s = transition ? Math.min(GOAL.s, (transition.start + transition.end) / 2)
       : panel.start + (parameters.has('seam') ? panel.length - 1.2 : parameters.has('middle') ? panel.length / 2 : .8);
     Object.assign(player, floorPoint(s), { lapProgress: (s - SPAWN.s) / WORLD.totalLength });
   }
@@ -79,13 +82,15 @@ catch(error) { $('loading').textContent = 'Scene artwork could not load. Please 
 const hero = character.object;
 const feedback = createFeedback(scene, WORLD.radius);
 const actions = createCharacterActions(player, character, feedback);
-const glowPalette = ['#ffc184', '#a5e8ff', '#e7a2ff', '#ff875c', '#a9e3ce', '#bbcaff']
+const glowPalette = ['#ffc184', '#a5e8ff', '#e7a2ff', '#ff875c', '#78e4f5', '#f7b7ee']
   .map(hex => new THREE.Color(hex));
 const glowIntensity = [.92, .78, 1.13, 1.02, .84, .86];
 const glowColor = new THREE.Color();
 
-// Keep the map north-up and crop a fixed local area around the player.
-$('map-path').setAttribute('d', WORLD.points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' ') + ' Z');
+// Keep the map north-up and mark only the course between the two ends.
+const mapPoints = WORLD.points.slice(0, Math.floor(endProgress * (WORLD.points.length - 1)) + 1);
+mapPoints.push(worldAt(routeEnd));
+$('map-path').setAttribute('d', mapPoints.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${(-p.y).toFixed(2)}`).join(' '));
 function clearInput() {
   keys.clear();
   actions.cancelJump();
@@ -96,6 +101,8 @@ const propHud = createPropHud($('game'));
 const editor = createPropEditor({
   root: $('game'), canvas, clearInput, publishSharedProps, defaultProps: props.defaults,
   previewZone: props.previewZone,
+  setCollisionBlocks: setCustomColliders,
+  previewCollisionBlocks: createColliderPreview(scene),
   async loadSharedProps() {
     const shared = await loadSharedProps();
     if (shared.includesDefaults) return shared;
@@ -191,7 +198,7 @@ function frame(now) {
   const glowStrength = THREE.MathUtils.lerp(glowIntensity[lightScene], glowIntensity[nextLight], blend);
   glowColor.copy(glowPalette[lightScene]).lerp(glowPalette[nextLight], blend);
   feedback.setGlowColor(glowColor);
-  if (!paused && !finished && !popup.active && started) {
+  if (propsReady && !paused && !finished && !popup.active && started) {
     accumulator += delta;
     let move = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     move = Math.sign(move);
@@ -199,7 +206,7 @@ function frame(now) {
       const before = { x: player.x, y: player.y, respawnId: player.respawnId };
       actions.step(move, PHYSICS.fixedDt);
       accumulator -= PHYSICS.fixedDt;
-      if (propsReady && !editor.active && player.respawnId === before.respawnId && props.stepHazards(before, player, PHYSICS.fixedDt)) {
+      if (!editor.active && player.respawnId === before.respawnId && props.stepHazards(before, player, PHYSICS.fixedDt)) {
         respawnPlayer(player, sceneAt(player.progress * WORLD.totalLength));
         clearInput(); actions.reset(); accumulator = 0;
         break;
@@ -217,7 +224,7 @@ function frame(now) {
   updateCameraPose(cameraPose, player, delta, viewHeight);
   const routePosition = player.progress * WORLD.totalLength;
   const viewWidth = viewHeight * aspect;
-  const framed = frameRouteEnds(cameraPose, viewWidth, viewHeight);
+  const framed = frameRouteEnds(cameraPose, viewWidth, viewHeight, endProgress);
   camera.position.set(framed.x, framed.y, 100);
   camera.rotation.z = framed.angle;
   camera.left = -viewWidth / 2; camera.right = viewWidth / 2;
@@ -257,7 +264,7 @@ function frame(now) {
   $('progress').innerHTML = `${String(percent).padStart(2, '0')}<span>%</span>`;
   $('progress-fill').style.width = `${percent}%`;
   if (debug) canvas.dataset.diagnostics = JSON.stringify({
-    x: player.x, y: player.y, grounded: player.grounded, jumps: player.jumps, airJumpUsed: player.airJumpUsed,
+    x: player.x, y: player.y, grounded: player.grounded, groundId: player.groundId, jumps: player.jumps, airJumpUsed: player.airJumpUsed,
     progress: player.progress, paused, finished, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
     nx: player.nx, ny: player.ny, cameraAngle: framed.angle, cameraX: camera.position.x, cameraY: camera.position.y, viewHeight, viewWidth,
     elapsed: player.elapsed, vx: player.vx, vy: player.vy, frameDelta: delta,

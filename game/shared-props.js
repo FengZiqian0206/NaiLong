@@ -1,3 +1,5 @@
+import { WORLD } from './world.js?v=20261123b';
+
 const repository = 'https://api.github.com/repos/FengZiqian0206/NaiLong';
 const manifestPath = 'game/assets/shared-props.json';
 const contentsURL = `${repository}/contents/${manifestPath}`;
@@ -74,20 +76,33 @@ function layoutRecords(props) {
   });
 }
 
+function layoutBlocks(blocks = []) {
+  if (!Array.isArray(blocks) || blocks.length > 128) throw new Error('A layout can contain up to 128 collision blocks.');
+  const ids = new Set();
+  return blocks.map(block => {
+    const { id, s, h, width, height } = block ?? {};
+    if (typeof id !== 'string' || !/^[a-z0-9_-]{1,80}$/i.test(id) || ids.has(id) ||
+      ![s, h, width, height].every(Number.isFinite) || width < .1 || width > 48 || height < .08 || height > 20 ||
+      h - height / 2 <= -WORLD.ringRadius + 1) throw new Error('A collision block has an invalid position or size.');
+    ids.add(id);
+    return { id, s, h, width, height };
+  });
+}
+
 function parseLayout(text) {
   if (text.length > maxLayoutBytes) throw new Error('The shared layout is too large.');
-  const { version, revision, props, includesDefaults } = JSON.parse(text);
+  const { version, revision, props, includesDefaults, blocks } = JSON.parse(text);
   if (version !== 1 || typeof revision !== 'string' ||
     (revision !== 'initial' && !/^[0-9a-f-]{36}$/i.test(revision))) {
     throw new Error('This shared layout could not be read.');
   }
-  return { revision, props, includesDefaults: includesDefaults === true };
+  return { revision, props, blocks: layoutBlocks(blocks), includesDefaults: includesDefaults === true };
 }
 
 async function readLayout(response) {
   if (!response.ok) throw new Error('The shared layout is unavailable.');
-  const { revision, props, includesDefaults } = parseLayout(await response.text());
-  return { revision, includesDefaults, props: layoutRecords(props).map((prop, index) => {
+  const { revision, props, blocks, includesDefaults } = parseLayout(await response.text());
+  return { revision, blocks, includesDefaults, props: layoutRecords(props).map((prop, index) => {
     const { sprite, popup } = props[index];
     if (prop.interactive && prop.behavior === 'image' && !popup) throw new Error('A shared image interaction has no image.');
     return { ...prop, blob: prop.asset ? undefined : storedImage(sprite, ['image/png']),
@@ -127,10 +142,11 @@ async function githubRequest(url, token, options = {}, accept = 'application/vnd
   return response;
 }
 
-export async function publishSharedProps(definitions, expectedRevision, token) {
+export async function publishSharedProps(definitions, expectedRevision, token, collisionBlocks) {
   const access = String(token ?? '').trim();
   if (!/^github_pat_[a-z0-9_]+$/i.test(access)) throw new Error('Enter a fine-grained GitHub access token.');
   const records = layoutRecords(definitions);
+  const blocks = layoutBlocks(collisionBlocks);
   const totalBytes = definitions.reduce((total, prop) => total + (prop.blob?.size ?? 0) + (prop.popupImage?.size ?? 0), 0);
   if (totalBytes > 11 * 1024 * 1024) throw new Error('The images in a shared layout must total 11 MB or less.');
 
@@ -141,7 +157,7 @@ export async function publishSharedProps(definitions, expectedRevision, token) {
       popup: popupImage ? await serializeImage(popupImage, photoTypes) : undefined };
   }));
   const revision = crypto.randomUUID();
-  const packed = new TextEncoder().encode(JSON.stringify({ version: 1, revision, includesDefaults: true, props }));
+  const packed = new TextEncoder().encode(JSON.stringify({ version: 1, revision, includesDefaults: true, props, blocks }));
   if (packed.byteLength > maxLayoutBytes) throw new Error('The shared layout is too large.');
 
   const metadata = await (await githubRequest(`${contentsURL}?ref=main`, access)).json();
@@ -157,6 +173,6 @@ export async function publishSharedProps(definitions, expectedRevision, token) {
   await githubRequest(contentsURL, access, { method: 'PUT', body: JSON.stringify({
     message: 'Save shared game objects', content: asBase64(packed), sha, branch: 'main',
   }) }, 'application/vnd.github+json');
-  return { revision, includesDefaults: true, props: records.map((prop, index) => ({ ...prop,
+  return { revision, blocks, includesDefaults: true, props: records.map((prop, index) => ({ ...prop,
     blob: definitions[index].blob, popupImage: definitions[index].popupImage })) };
 }

@@ -47,9 +47,23 @@
   justify-content: flex-start;
 }
 
+.prop-editor-tools,
+.prop-editor-block-sizes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.prop-editor-objects,
+.prop-editor-blocks {
+  display: grid;
+  gap: 12px;
+}
+
 .prop-editor button,
 .prop-editor select,
-.prop-editor input[type="password"] {
+.prop-editor input[type="password"],
+.prop-editor-block-sizes input {
   min-height: 34px;
   border: 1px solid #293e3b40;
   border-radius: 3px;
@@ -68,13 +82,13 @@
   background: #faf1db;
 }
 
-.prop-editor button[data-action="file"] {
+.prop-editor button:is([data-action="file"], [data-action="add-block"]) {
   border-color: #9b492f;
   background: #a34e34;
   color: #fffdf6;
 }
 
-.prop-editor button[data-action="file"]:not(:disabled):hover {
+.prop-editor button:is([data-action="file"], [data-action="add-block"]):not(:disabled, [aria-pressed="true"]):hover {
   background: #893e29;
 }
 
@@ -97,6 +111,11 @@
 }
 
 .prop-editor select {
+  width: 100%;
+}
+
+.prop-editor-block-sizes input {
+  min-width: 0;
   width: 100%;
 }
 
@@ -191,6 +210,7 @@
 .prop-editor button[aria-pressed="true"] {
   background: #f6e2d3;
   border-color: #a34e34;
+  color: #71331f;
 }
 
 .prop-editor p {

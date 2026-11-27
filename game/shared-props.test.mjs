@@ -34,15 +34,18 @@ test('global publishing preserves editable originals, dependencies and zones and
   });
 
   assert.equal((await loadSharedProps()).includesDefaults, false, 'an older layout still needs the default props');
+  assert.deepEqual((await loadSharedProps()).blocks, [], 'older layouts load with no authored blocks');
   const objects = [{ id: 'lamp', name: 'Lamp', nameZh: '吊灯', s: 3, h: 2, width: 1, height: 2,
     behavior: 'image', interactive: true, blob: png, popupImage: png, popupName: '说明.png',
     requires: ['key'], fallZone: { s: 4, h: 1, width: 3, height: 2 } },
   { id: 'key', asset: 'key', name: 'Key', nameZh: '钥匙', s: 9, h: 2, width: 2, height: 1,
     behavior: 'disappear', interactive: true }];
-  const published = await publishSharedProps(objects, 'initial', token);
+  const blocks = [{id: 'test-block', s: 47, h: 3.2, width: 8.4, height: .28}];
+  const published = await publishSharedProps(objects, 'initial', token, blocks);
   const loaded = await loadSharedProps();
   assert.equal(loaded.revision, published.revision);
   assert.equal(loaded.includesDefaults, true, 'deleting an original must not reintroduce it on reload');
+  assert.deepEqual(loaded.blocks, blocks, 'shared collision blocks retain sizing and placement');
   assert.deepEqual(loaded.props, published.props);
   assert.deepEqual(loaded.props[0].requires, ['key']);
   assert.deepEqual(loaded.props[0].fallZone, objects[0].fallZone);
@@ -51,5 +54,6 @@ test('global publishing preserves editable originals, dependencies and zones and
   assert.deepEqual(await loaded.props[0].popupImage.arrayBuffer(), await png.arrayBuffer());
   assert.equal(JSON.stringify(document).includes(token), false);
   await assert.rejects(publishSharedProps([], 'initial', token), /shared layout changed/);
+  await assert.rejects(publishSharedProps(objects, published.revision, token, [{...blocks[0], width: .04}]), /invalid position or size/);
   assert.equal(writes, 1, 'a stale editor cannot delete the shared objects');
 });
