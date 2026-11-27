@@ -1,4 +1,4 @@
-import { worldAt } from './scenes.js?v=20261127';
+import { worldAt } from './scenes.js?v=20261127c';
 import { WORLD } from './world.js?v=20261123b';
 
 const { ringRadius, totalLength } = WORLD;
@@ -80,6 +80,7 @@ export function createPropMotion({ s, h, interactive, motion }) {
   const samples = motion.path ? sampleMotionPath([{ s, h }, ...motion.path.slice(1)]) : [];
   const state = { pose: origin };
   if (samples.length > 1) {
+    state.mode = 'path';
     const distances = [0];
     for (let i = 1; i < samples.length; i++) {
       const a = samples[i - 1], b = samples[i];
@@ -103,6 +104,7 @@ export function createPropMotion({ s, h, interactive, motion }) {
     return state;
   }
   if (!motion.pivot) return null;
+  state.mode = 'orbit';
   const pivot = poseAt(motion.pivot.s, motion.pivot.h);
   const dx = origin.x - pivot.x, dy = origin.y - pivot.y;
   let turn = 0;

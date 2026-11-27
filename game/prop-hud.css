@@ -41,7 +41,7 @@
   position: absolute;
   z-index: 1;
   inset-inline-start: clamp(calc(var(--side-clearance, 16px) + env(safe-area-inset-left)), var(--screen-x), calc(100% - var(--right-clearance) - env(safe-area-inset-right)));
-  inset-block-start: clamp(calc(36px + env(safe-area-inset-top)), var(--screen-y), calc(100% - 10px - env(safe-area-inset-bottom)));
+  inset-block-start: clamp(calc(var(--top-clearance, 36px) + env(safe-area-inset-top)), var(--screen-y), calc(100% - 10px - env(safe-area-inset-bottom)));
   width: var(--size);
   height: var(--size);
   display: grid;
@@ -67,33 +67,42 @@
   font: 700 21px/.8 system-ui, sans-serif;
 }
 
-.prop-prompt[data-mode="ride"] {
-  --side-clearance: 45px;
-  --right-clearance: 45px;
+.prop-prompt-ride {
+  --side-clearance: 123px;
+  --right-clearance: 123px;
+  --top-clearance: 44px;
   display: flex;
-  gap: 4px;
+  gap: 9px;
   width: max-content;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  height: auto;
+  padding: 4px 6px;
+  background: #fff2ceee;
+  font: 600 11px/1.2 system-ui, sans-serif;
+  white-space: nowrap;
 }
 
-#game:has(.prop-inventory:not([hidden])) .prop-prompt[data-mode="ride"] {
-  --right-clearance: 102px;
+#game:has(.prop-inventory:not([hidden])) .prop-prompt-ride {
+  --right-clearance: min(177px, 53vw);
 }
 
-.prop-prompt[data-mode="ride"][hidden] { display: none; }
+.prop-prompt-ride[hidden] { display: none; }
+
+.prop-prompt-ride > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .prop-prompt kbd {
   display: grid;
   place-items: center;
-  width: var(--size);
-  height: var(--size);
+  width: 21px;
+  height: 21px;
   border: 1px solid #6c5a36b3;
   border-radius: 4px;
   background: #fff2ce;
   box-shadow: 0 2px 5px #21140959;
-  font: inherit;
+  font: 700 12px/1 ui-monospace, Consolas, monospace;
 }
 
 @media (max-width: 760px) {

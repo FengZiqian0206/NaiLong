@@ -1,4 +1,4 @@
-import { stepPlayer } from './physics.js?v=20261127';
+import { stepPlayer } from './physics.js?v=20261127c';
 
 export function createCharacterActions(player, character, feedback) {
   const stepLength = 2.4;

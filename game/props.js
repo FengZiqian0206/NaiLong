@@ -1,8 +1,8 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { WORLD, nearestPath } from './world.js?v=20261123b';
-import { PANELS, worldAt } from './scenes.js?v=20261127';
-import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127';
-import { createPropMotion, normalizeMotion } from './prop-motion.js?v=20261127b';
+import { PANELS, worldAt } from './scenes.js?v=20261127c';
+import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127c';
+import { createPropMotion, normalizeMotion } from './prop-motion.js?v=20261127c';
 
 const { ringRadius, totalLength } = WORLD;
 const reach = 3.25;
@@ -249,30 +249,50 @@ export async function createProps(scene) {
     return { id: riding.id, s, h, x, y };
   }
 
+  function resetHazards(player) {
+    for (const prop of props.values()) prop.fall = prop.travel ? null : createFallingProp(prop, player);
+  }
+
   return {
     defaults,
     get activeId() { return active?.id ?? null; },
     get ridingId() { return riding?.id ?? null; },
     get animatingId() { return [...props.values()].find(prop => prop.elapsed < bounceDuration)?.id ?? null; },
     get collectedIds() { return [...collected]; },
+    get hazardStates() {
+      const states = [];
+      for (const { id, interactive, fadeTime, fall } of props.values()) {
+        if (!interactive || !fall) continue;
+        let state = 'ready';
+        if (fadeTime !== null) state = 'collected';
+        else if (fall.gone) state = 'gone';
+        else if (fall.settled) state = 'resting';
+        else if (fall.dropped) state = 'falling';
+        else if (fall.waitingForExit) state = 'waiting-for-exit';
+        states.push([id, state]);
+      }
+      return Object.fromEntries(states);
+    },
     get prompt() {
       const target = riding ?? active;
       if (!target) return;
       const pose = runtimePose(target);
       const turn = pose.turn ? (target.s - pose.s) / ringRadius + pose.turn : 0;
       const extent = Math.abs(Math.cos(turn)) * target.height / 2 + Math.abs(Math.sin(turn)) * target.width / 2;
-      return { s: pose.s, h: pose.h + extent + .26, blocked: !riding && blocked(target), riding: Boolean(riding) };
+      return { s: pose.s, h: pose.h + extent + .26, blocked: !riding && blocked(target), riding: Boolean(riding),
+        rideMode: riding?.travel.mode };
     },
-    reset() {
+    reset(player) {
       active = riding = null;
       collected.clear();
       for (const prop of props.values()) {
         prop.fadeTime = null;
         prop.elapsed = bounceDuration;
         prop.travel = createPropMotion(prop);
-        prop.fall = prop.travel ? null : createFallingProp(prop);
       }
+      resetHazards(player);
     },
+    resetHazards,
     stepHazards(before, player, dt) {
       let hit = false;
       for (const prop of props.values()) {

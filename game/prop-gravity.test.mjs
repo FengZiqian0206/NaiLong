@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createFallingProp, stepFallingProp } from './prop-gravity.js';
-import { PANELS, floorPoint, setCustomColliders, worldAt } from './scenes.js?v=20261127';
+import { createFallingProp, stepFallingProp } from './prop-gravity.js?v=20261127c';
+import { PANELS, floorPoint, setCustomColliders, worldAt } from './scenes.js?v=20261127c';
 import { WORLD } from './world.js?v=20261123b';
 
 const tick = 1 / 120;
@@ -61,4 +61,20 @@ test('a wrapped trigger and a moving player are swept in ring coordinates', () =
     fallZone: { s: 50, h: 7, width: 2, height: 2 } });
   assert.equal(stepFallingProp(body, worldAt(47, 7), worldAt(53, 7), tick), true,
     'the moving player can hit the body even if both end poses are outside it');
+});
+
+test('a hazard resets inside its wrapped trigger and rearms only after an exit', () => {
+  const definition = { s: 12, h: 9, width: 1, height: 1, fallZone: { s: 0, h: 2, width: 2, height: 1 } };
+  const spawn = worldAt(WORLD.totalLength - .4, 2), inside = worldAt(.4, 2);
+  const outside = worldAt(2, 2);
+  const body = createFallingProp(definition, spawn);
+
+  stepFallingProp(body, spawn, inside, tick);
+  assert.equal(body.dropped, false);
+  stepFallingProp(body, inside, outside, tick);
+  assert.equal(body.dropped, false, 'leaving the spawn trigger does not start the drop');
+  stepFallingProp(body, outside, outside, tick);
+  assert.equal(body.height, 9);
+  stepFallingProp(body, outside, inside, tick);
+  assert.equal(body.dropped, true, 'a genuine re-entry starts a fresh drop');
 });

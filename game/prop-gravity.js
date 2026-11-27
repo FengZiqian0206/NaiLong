@@ -1,4 +1,4 @@
-import { COLLIDERS, CUSTOM_COLLIDERS } from './scenes.js?v=20261127';
+import { COLLIDERS, CUSTOM_COLLIDERS } from './scenes.js?v=20261127c';
 import { WORLD } from './world.js?v=20261123b';
 
 const { ringRadius, totalLength } = WORLD;
@@ -12,6 +12,12 @@ function routeDelta(s, origin) {
 
 function routePoint({ x, y }) {
   return { s: Math.atan2(x, y) * ringRadius, h: Math.hypot(x, y) - ringRadius };
+}
+
+function insideZone(point, zone) {
+  const edgeTolerance = 1e-7;
+  return Math.abs(routeDelta(point.s, zone.s)) <= zone.width / 2 + edgeTolerance &&
+    Math.abs(point.h - zone.h) <= zone.height / 2 + edgeTolerance;
 }
 
 // Clip a swept point to an axis-aligned box in local route coordinates.
@@ -55,11 +61,12 @@ function landingHeight(body) {
   return highest + body.halfHeight;
 }
 
-export function createFallingProp({ s, h, width, height, fallZone }) {
+export function createFallingProp({ s, h, width, height, fallZone }, respawnAt) {
   if (!fallZone || ![s, h, width, height, fallZone.s, fallZone.h, fallZone.width, fallZone.height].every(Number.isFinite) ||
     Math.min(width, height, fallZone.width, fallZone.height) <= 0) return null;
 
   return { s, height: h, halfWidth: width / 2, halfHeight: height / 2, zone: fallZone,
+    waitingForExit: Boolean(respawnAt && insideZone(routePoint(respawnAt), fallZone)),
     speed: 0, floor: -Infinity, dropped: false, settled: false, gone: false, bounced: false, hit: false };
 }
 
@@ -69,6 +76,11 @@ export function stepFallingProp(body, playerBefore, playerAfter, dt) {
   const from = routePoint(playerBefore), to = routePoint(playerAfter);
   const movement = routeDelta(to.s, from.s);
   if (!body.dropped) {
+    // Spawning inside a trigger does not count as entering it again.
+    if (body.waitingForExit) {
+      body.waitingForExit = insideZone(to, body.zone);
+      return false;
+    }
     const { s, h, width, height } = body.zone;
     const x = routeDelta(from.s, s);
     if (!crossesBox(x, from.h - h, x + movement, to.h - h, width / 2, height / 2)) return false;

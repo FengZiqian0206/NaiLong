@@ -1,19 +1,19 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127';
+import { WORLD, PHYSICS, createPlayer, resetPlayer, respawnPlayer, goalLapProgress } from './physics.js?v=20261127c';
 import { createCameraPose, updateCameraPose, frameRouteEnds } from './camera.js?v=20261127b';
 import { setupFullscreen } from './fullscreen.js?v=20261125';
-import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127';
-import { addArtwork } from './artwork.js?v=20261127b';
+import { PANELS, SPAWN, GOAL, SCENE_LENGTH, TRANSITIONS, sceneAt, transitionAt, floorPoint, worldAt, setCustomColliders } from './scenes.js?v=20261127c';
+import { addArtwork } from './artwork.js?v=20261127c';
 import { createCharacter } from './character.js?v=20261127b';
-import { createCharacterActions } from './character-actions.js?v=20261127';
+import { createCharacterActions } from './character-actions.js?v=20261127c';
 import { createFeedback } from './feedback.js?v=20261127b';
-import { createProps, propPoint } from './props.js?v=20261127b';
-import { createPropEditor } from './prop-editor.js?v=20261127b';
+import { createProps, propPoint } from './props.js?v=20261127c';
+import { createPropEditor } from './prop-editor.js?v=20261127c';
 import { createPropPopup } from './prop-popup.js?v=20261126b';
-import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127b';
-import { createPropHud } from './prop-hud.js?v=20261127b';
-import { createColliderPreview } from './collider-preview.js?v=20261127';
-import { createMotionPreview } from './motion-preview.js?v=20261127b';
+import { loadSharedProps, publishSharedProps } from './shared-props.js?v=20261127c';
+import { createPropHud } from './prop-hud.js?v=20261127c';
+import { createColliderPreview } from './collider-preview.js?v=20261127c';
+import { createMotionPreview } from './motion-preview.js?v=20261127c';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -150,7 +150,7 @@ function disembark(position) {
 function restart() {
   resetPlayer(player); clearInput();
   actions.reset();
-  props.reset();
+  props.reset(player);
   propHud.reset();
   Object.assign(cameraPose, createCameraPose(player, viewHeight));
   accumulator = 0; paused = false; finished = false; started = false;
@@ -245,6 +245,9 @@ function frame(now) {
       actions.step(move, PHYSICS.fixedDt);
       if (!editor.active && player.respawnId === before.respawnId && props.stepHazards(before, player, PHYSICS.fixedDt)) {
         respawnPlayer(player, sceneAt(player.progress * WORLD.totalLength));
+      }
+      if (player.respawnId !== before.respawnId) {
+        props.resetHazards(player);
         clearInput(); actions.reset(); accumulator = 0;
         break;
       }
@@ -295,7 +298,7 @@ function frame(now) {
     const point = worldAt(prompt.s, prompt.h);
     promptPoint.set(point.x, point.y, 0).project(camera);
     propHud.showPrompt({ x: (promptPoint.x + 1) * canvas.clientWidth / 2,
-      y: (1 - promptPoint.y) * canvas.clientHeight / 2, blocked: prompt.blocked, riding: prompt.riding });
+      y: (1 - promptPoint.y) * canvas.clientHeight / 2, blocked: prompt.blocked, rideMode: prompt.rideMode });
   } else propHud.showPrompt(null);
   $('minimap').setAttribute('viewBox', `${player.x - 42} ${-player.y - 25.2} 84 50.4`);
   $('map-player').setAttribute('cx', player.x); $('map-player').setAttribute('cy', -player.y);
@@ -314,7 +317,7 @@ function frame(now) {
     transition: Boolean(transitionAt(routePosition)), lapProgress: player.lapProgress, ringRadius: WORLD.ringRadius,
     character: character.state, glow: '#' + glowColor.getHexString(), feedback: feedback.diagnostics,
     activeProp: props.activeId, blockedProp: prompt?.blocked ?? false, riding: props.ridingId ?? null,
-    animatingProp: props.animatingId, collectedProps: props.collectedIds, imagePopup: popup.active,
+    animatingProp: props.animatingId, collectedProps: props.collectedIds, hazards: props.hazardStates, imagePopup: popup.active,
   });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

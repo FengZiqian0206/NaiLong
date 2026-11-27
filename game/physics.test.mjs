@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261127';
+import {WORLD,PHYSICS,goalLapProgress,createPlayer,resetPlayer,stepPlayer,nearestSurface,samplePath} from './physics.js?v=20261127c';
 import {nearestPath} from './world.js?v=20261123b';
-import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint,setCustomColliders} from './scenes.js?v=20261127';
+import {COLLIDERS,SPAWN,GOAL,PANELS,TRANSITIONS,SCENE_LENGTH,worldAt,floorPoint,setCustomColliders} from './scenes.js?v=20261127c';
 import {createCharacterActions} from './character-actions.js';
 
 const dt=PHYSICS.fixedDt;
@@ -48,8 +48,8 @@ for(let scene=0;scene<6;scene++) {
   assert.equal(platforms.size,PANELS[scene].source.platforms.length,'every source platform has a real collider');
 }
 assert.equal(PANELS[2].source.platforms.length,1,'scene three has one continuous walkable floor');
-assert.deepEqual(PANELS.slice(0,5).map(panel=>panel.source.platforms.length),[3,1,1,2,1],
-  'the original platform strips were removed, leaving only floors and the entrance grade');
+assert.deepEqual(PANELS.slice(0,5).map(panel=>panel.source.platforms.length),[3,1,1,1,1],
+  'the first five scenes retain their floor strips');
 function tick(p,move=0,jump=false) {
   stepPlayer(p,{move,jump},dt);
   checkContact(p);
@@ -249,9 +249,10 @@ assert.ok(exposedPlatforms>=12 && elevatedPlatforms>=4,'the ground strips and ar
 assert.ok(maxContactRouteOffset<.3,'even the tallest artwork platforms retain their own circular region');
 assert.equal([...contactScenes].filter(s=>s>=0).length,6);
 let rampChecks=0;
-for(const panel of [PANELS[3],PANELS[5]]) for(const [platformIndex,line] of panel.source.platforms.entries()) {
+const finalPanel=PANELS[5];
+for(const [platformIndex,line] of finalPanel.source.platforms.entries()) {
   if(line.y1===line.y2) continue;
-  const segments=groups.get(panel.index+':'+platformIndex),segment=segments[Math.floor(segments.length/2)];
+  const segments=groups.get(finalPanel.index+':'+platformIndex),segment=segments[Math.floor(segments.length/2)];
   const x=(segment.ax+segment.bx)/2,y=(segment.ay+segment.by)/2,up=nearestPath(x,y);
   const length=Math.hypot(segment.bx-segment.ax,segment.by-segment.ay);
   let nx=-(segment.by-segment.ay)/length,ny=(segment.bx-segment.ax)/length;
@@ -268,7 +269,7 @@ for(const panel of [PANELS[3],PANELS[5]]) for(const [platformIndex,line] of pane
     'D walks along the terrain grade without losing speed into the radial axis');
   rampChecks++;
 }
-assert.ok(rampChecks>=10,'the city entrance and the full bridge grade are exercised');
+assert.ok(rampChecks>=10,'the full bridge grade is exercised');
 resetPlayer(p);
 for(let i=0;i<90;i++) {tick(p,1);assert.ok(p.ny>.95,'low ledges never invert local gravity');}
 // Cross the transition entrances and the remaining scene seams on actual terrain.
@@ -276,6 +277,15 @@ for(const seam of [...TRANSITIONS.map(t=>t.start),...PANELS.slice(1).map(panel=>
   placeOnRoute(p,(seam-1)/WORLD.totalLength);
   for(let i=0;i<180;i++) tick(p,1);
   assert.ok(p.progress*WORLD.totalLength>seam,'scene seam is traversable '+JSON.stringify({s:p.progress*WORLD.totalLength,seam}));
+}
+for(const bridge of TRANSITIONS.slice(1,3)) for(const direction of [-1,1]) {
+  resetPlayer(p);
+  Object.assign(p,floorPoint(bridge.end-direction*3));
+  for(let i=0;i<85;i++) {
+    tick(p,direction);
+    assert.ok(p.grounded,'the revised join supports walking in both directions');
+  }
+  assert.ok((p.progress*WORLD.totalLength-bridge.end)*direction>2,'walking clears the revised join');
 }
 const dedicatedBridgeFrames=[];
 for(const bridge of TRANSITIONS) {

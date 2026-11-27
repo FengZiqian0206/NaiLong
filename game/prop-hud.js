@@ -2,7 +2,7 @@ export function createPropHud(root) {
   const doc = root.ownerDocument;
   const stylesheet = doc.createElement('link');
   stylesheet.rel = 'stylesheet';
-  stylesheet.href = new URL('./prop-hud.css?v=20261127b', import.meta.url);
+  stylesheet.href = new URL('./prop-hud.css?v=20261127c', import.meta.url);
   doc.head.append(stylesheet);
 
   const inventory = doc.createElement('ul');
@@ -46,24 +46,33 @@ export function createPropHud(root) {
       prompt.hidden = true;
     },
     showPrompt(point) {
-      const { x, y, blocked, riding } = point ?? {};
+      const { x, y, blocked, rideMode } = point ?? {};
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         prompt.hidden = true;
         return;
       }
-      const mode = riding ? 'ride' : blocked ? 'blocked' : 'interact';
+      const mode = rideMode ?? (blocked ? 'blocked' : 'interact');
       if (prompt.dataset.mode !== mode) {
         prompt.dataset.mode = mode;
         prompt.classList.toggle('prop-prompt-blocked', Boolean(blocked));
-        if (riding) {
-          prompt.replaceChildren(...['A', 'D', 'E'].map(key => {
+        prompt.classList.toggle('prop-prompt-ride', Boolean(rideMode));
+        if (rideMode) {
+          const orbit = rideMode === 'orbit';
+          const controls = orbit ? [['A', 'Turn left'], ['D', 'Turn right'], ['E', 'Exit']]
+            : [['A', 'Back'], ['D', 'Forward'], ['E', 'Exit']];
+          prompt.replaceChildren(...controls.map(([key, label]) => {
+            const control = doc.createElement('span');
             const cap = doc.createElement('kbd');
             cap.textContent = key;
-            return cap;
+            control.append(cap, label);
+            return control;
           }));
-        } else prompt.textContent = blocked ? '×' : 'E';
-        prompt.setAttribute('aria-label', riding ? 'Press A or D to move. Press E to exit.'
-          : blocked ? 'Required item missing' : 'Press E to interact');
+          prompt.setAttribute('aria-label', orbit ? 'A rotates counterclockwise. D rotates clockwise. E exits.'
+            : 'A moves back. D moves forward. E exits.');
+        } else {
+          prompt.textContent = blocked ? '×' : 'E';
+          prompt.setAttribute('aria-label', blocked ? 'Required item missing' : 'Press E to interact');
+        }
       }
       prompt.style.setProperty('--screen-x', `${x}px`);
       prompt.style.setProperty('--screen-y', `${y}px`);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from '../vendor/three.module.min.js';
-import { createProps } from './props.js';
+import { createProps } from './props.js?v=20261127c';
 import { WORLD, samplePath } from './world.js';
 
 test('scene props support disappearing, picture reveals and legacy bounce', async (t) => {
@@ -80,6 +80,7 @@ test('scene props support disappearing, picture reveals and legacy bounce', asyn
   assert.equal(props.ridingId, 'ride-path');
   assert.equal(props.stepHazards(entry, entry, 1), false, 'configured movement takes priority over falling');
   assert.equal(props.prompt.riding, true);
+  assert.equal(props.prompt.rideMode, 'path');
   assert.equal(props.stepRide(-1, 1).s, 44, 'the path does not wrap backwards at its first endpoint');
   const midway = props.stepRide(1, .6);
   assert.ok(midway.s > 44 && midway.s < 52, 'the path wins over the pivot');
@@ -110,4 +111,46 @@ test('scene props support disappearing, picture reveals and legacy bounce', asyn
   await add('empty-motion', 115, { motion: {}, behavior: 'image', popupImage: blob });
   assert.equal(props.interact(view(115)), null, 'an unfinished motion can still give simple elastic feedback');
   assert.equal(props.animatingId, 'empty-motion');
+
+  const tick = .01;
+  const firstZone = { s: 129, h: 1, width: 2, height: 2 };
+  const secondZone = { s: 136, h: 1, width: 2, height: 2 };
+  await add('first-trap', 129, { h: 8, height: 1, fallZone: firstZone });
+  const firstTrap = scene.children.at(-1);
+  await add('second-trap', 145, { h: 12, height: 1, fallZone: secondZone });
+  const secondTrap = scene.children.at(-1);
+  const insideSecond = view(136), insideFirst = view(129), outside = view(126);
+  let hit = false;
+  for (let i = 0; i < 160 && !hit; i++) hit = props.stepHazards(insideFirst, insideFirst, tick);
+  assert.equal(hit, true, 'the first trap really hit the player');
+  for (let i = 0; i < 120; i++) props.stepHazards(outside, outside, tick);
+  props.stepHazards(insideSecond, insideSecond, tick);
+  assert.equal(props.hazardStates['first-trap'], 'resting');
+  assert.equal(props.hazardStates['second-trap'], 'falling');
+  view(129);
+  assert.ok(firstTrap.material.uniforms.bounds.value.y < 8 && secondTrap.material.uniforms.bounds.value.y < 12);
+
+  await add('orbit', 155, { motion: { pivot: { s: 152, h: 4 } } });
+  assert.equal(props.interact(view(155)).type, 'ride');
+  assert.equal(props.prompt.rideMode, 'orbit');
+  const orbitPose = props.stepRide(1, .3);
+  const collectedProps = props.collectedIds;
+  props.resetHazards(insideFirst);
+  assert.deepEqual(props.hazardStates, { 'ride-path': 'collected', 'first-trap': 'waiting-for-exit', 'second-trap': 'ready' });
+  assert.deepEqual(props.collectedIds, collectedProps);
+  assert.equal(scene.children[0].visible, false, 'a replaced hazard does not reveal collected items');
+  assert.deepEqual(props.stepRide(0, .3), orbitPose, 'motion progress is kept when hazards reset');
+  props.exitRide();
+  view(129);
+  assert.equal(firstTrap.material.uniforms.bounds.value.y, 8);
+  assert.equal(secondTrap.material.uniforms.bounds.value.y, 12);
+  assert.equal(props.stepHazards(insideFirst, insideFirst, .1), false);
+  view(129);
+  assert.equal(firstTrap.material.uniforms.bounds.value.y, 8, 'a hazard cannot briefly fall onto its respawn point');
+  props.stepHazards(insideFirst, outside, .1);
+  props.stepHazards(outside, insideFirst, .1);
+  props.stepHazards(insideSecond, insideSecond, .1);
+  view(129);
+  assert.ok(firstTrap.material.uniforms.bounds.value.y < 8 && secondTrap.material.uniforms.bounds.value.y < 12,
+    'all hazards can trigger again after a death');
 });

@@ -1,10 +1,11 @@
-import LEVELS from './assets/levels.json?v=20261127' with {type:'json'};
+import LEVELS from './assets/levels.json?v=20261127c' with {type:'json'};
 import {WORLD,samplePath,SCENE_COUNT,SCENE_LENGTH,TRANSITION_LENGTH} from './world.js?v=20261123b';
 
 export {SCENE_COUNT,SCENE_LENGTH};
 const sectorLength=SCENE_LENGTH+TRANSITION_LENGTH;
 const transitionImages=['transition-1-2.jpg','transition-2-3.jpg','transition-3-4.jpg',
   'transition-4-5.jpg','transition-5-6.png',null];
+export const LEVEL3_ENTRY_STAIRS={offsets:[1.6,1.1,.6],rise:.22};
 
 export const PANELS=Array.from({length:SCENE_COUNT},(_,index)=>{
   const source=LEVELS['level'+(index+1)];
@@ -58,8 +59,16 @@ export function transitionTop(transition,s) {
     const x=Math.max(0,Math.min(1,(value-start)/(end-start)));
     return x*x*(3-2*x);
   };
-  const ease=transition.index===2?smooth(t,.85,1):smooth(t,0,1);
+  const ease=smooth(t,0,1);
   const height=transition.exitTop+(transition.entryTop-transition.exitTop)*ease;
+  if(transition.index===1) {
+    const {offsets,rise}=LEVEL3_ENTRY_STAIRS;
+    const approach=transition.entryTop-rise*offsets.length;
+    const approachHeight=height+(approach-height)*smooth(t,.48,.92);
+    // Ease the collision risers over a short distance so a walk can climb them.
+    const distance=s-transition.end;
+    return approachHeight+rise*offsets.reduce((sum,offset)=>sum+smooth(distance,-offset-.16,-offset+.16),0);
+  }
   if(transition.index===3) return height-1.1*smooth(t,.04,.65)*(1-smooth(t,.69,1));
   if(transition.index===4) return height-.25*Math.sin(Math.PI*t)**2;
   return height;

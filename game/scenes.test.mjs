@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import LEVELS from './assets/levels.json' with {type:'json'};
 import {WORLD,samplePath} from './world.js';
-import {SCENE_COUNT,SCENE_LENGTH,TRANSITIONS,PANELS,COLLIDERS,
-  panelAt,sceneAt,transitionAt,worldAt,floorPoint} from './scenes.js?v=20261127';
+import {SCENE_COUNT,SCENE_LENGTH,TRANSITIONS,PANELS,COLLIDERS,LEVEL3_ENTRY_STAIRS,
+  panelAt,sceneAt,transitionAt,transitionTop,worldAt,floorPoint} from './scenes.js?v=20261127c';
 import {nearestSurface} from './physics.js';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8);
@@ -60,8 +60,20 @@ for(const pixelX of [750,1458]) {
 }
 assert.equal(LEVELS.level3.platforms.length,1);
 assert.equal(LEVELS.level3.platforms[0].x2,LEVELS.level3.width);
-assert.equal(LEVELS.level4.platforms.length,2,'only the entrance grade and floor remain in level four');
+assert.deepEqual(LEVELS.level4.platforms,[{x1:0,y1:624.5,x2:2163,y2:624.5,halfThickness:3}]);
 assert.ok(LEVELS.level6.platforms.some(line=>line.y1!==line.y2),'the final bridge follows its painted arch');
+
+const courtyardGate=TRANSITIONS[1];
+const {offsets,rise}=LEVEL3_ENTRY_STAIRS;
+assert.deepEqual(offsets,[1.6,1.1,.6]);
+for(const [index,offset] of offsets.entries()) {
+  const center=courtyardGate.end-offset;
+  close(transitionTop(courtyardGate,center-.18),courtyardGate.entryTop-rise*(offsets.length-index));
+  close(transitionTop(courtyardGate,center+.18),courtyardGate.entryTop-rise*(offsets.length-index-1));
+}
+const factoryBridge=TRANSITIONS[2];
+close(factoryBridge.exitTop,factoryBridge.entryTop);
+close(transitionTop(factoryBridge,factoryBridge.end-1),factoryBridge.entryTop);
 
 function floorCollider(panel,atEnd) {
   const lineIndex=panel.source.platforms.findIndex(line=>atEnd?line.x2>=panel.source.width-16:line.x1===0);

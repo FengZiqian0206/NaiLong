@@ -1,6 +1,6 @@
 import * as THREE from '../vendor/three.module.min.js';
 import {WORLD} from './world.js?v=20261123b';
-import {PANELS,TRANSITIONS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127';
+import {PANELS,TRANSITIONS,LEVEL3_ENTRY_STAIRS,sceneAt,transitionAt,transitionTop,worldAt} from './scenes.js?v=20261127c';
 
 // Arc-length overlaps. A longer dissolve in matching scenery softens the join
 // without having to stretch the transition or repeat its landmarks.
@@ -69,12 +69,73 @@ const edgePaint=`
 const transitionPaint=`
   uniform sampler2D art;
   uniform float overscan,garden,transitionIndex;
-  uniform vec2 paintedEdges;
+  uniform vec2 paintedEdges,imageSize;
+  uniform vec3 stairOffsets;
+  uniform float stairRise;
   ${edgePaint}
+
+  float window(float p,float left,float right,float feather){
+    return smoothstep(left-feather,left,p)*(1.-smoothstep(right,right+feather,p));
+  }
+
+  vec2 terraceStairs(vec2 uv,float x,float relative){
+    // Move just the painted edge of the paving onto each stair tread.
+    // Keep the trees, lamps and arch at their original proportions.
+    vec3 passed=step(-stairOffsets,vec3(relative));
+    float treadV=artworkWarp.y+(passed.x+passed.y+passed.z-3.)*stairRise/artworkWarp.w;
+    float nativeRow=mix(597.,580.,clamp((x-1927.5)/24.5,0.,1.));
+    float nativeV=1.-nativeRow/imageSize.y;
+    float apron=window(relative,-2.4,1.5,1.15);
+    uv.y+=(nativeV-treadV)*apron*(1.-smoothstep(.015,.072,abs(uv.y-treadV)));
+    return uv;
+  }
+
+  vec3 factoryApproach(vec3 paint,vec2 uv,float x,float worldHeight){
+    float row=(1.-uv.y)*imageSize.y;
+    // Replace the hanging treads with the dark masonry around them.
+    float erase=max(window(x,1736.,1793.,9.)*window(row,569.,582.,5.),
+      window(x,1780.,1856.,7.)*window(row,605.,624.,5.));
+    vec3 wall=texture2D(art,uv+vec2(0.,24./imageSize.y)).rgb;
+    paint=mix(paint,wall,erase);
+    float lowerTread=window(x,1823.,1897.,7.)*window(row,639.,657.,5.);
+    float masonryRow=mix(627.,632.,smoothstep(634.,662.,row));
+    vec3 masonry=texture2D(art,vec2(uv.x,1.-masonryRow/imageSize.y)).rgb;
+    paint=mix(paint,masonry,lowerTread);
+
+    // The front rim runs at one height from the fence to the factory slab.
+    float span=window(x,1748.,1902.,40.);
+    float depth=max(0.,-worldHeight);
+    vec3 footing=texture2D(art,vec2(uv.x,1.-(703.+min(75.,depth*19.))/imageSize.y)).rgb;
+    float rim=window(worldHeight,-.17,-.025,.045);
+    float landing=smoothstep(1810.,1910.,x);
+    vec3 brick=mix(vec3(.105,.025,.027),vec3(.55,.09,.04),landing);
+    float reflection=.8+.16*sin(x*.14)+.08*sin(x*.72);
+    vec3 path=mix(footing,brick*reflection,rim);
+    return mix(paint,path,span*(1.-smoothstep(-.04,.022,worldHeight)));
+  }
+
+  vec3 stationApproach(vec3 paint,vec2 uv,float x){
+    float row=(1.-uv.y)*imageSize.y;
+    float rise=2.*smoothstep(517.,612.,x);
+    float curb=window(row-rise,547.,560.,3.)*window(x,501.,630.,39.);
+    vec3 cool=texture2D(art,vec2(497./imageSize.x,1.-(row-rise)/imageSize.y)).rgb;
+    vec3 warm=texture2D(art,vec2(672./imageSize.x,1.-(row-rise+3.)/imageSize.y)).rgb;
+    vec3 stone=mix(cool,warm,smoothstep(508.,648.,x));
+    paint=mix(paint,mix(stone,paint,.23),curb);
+    float railing=window(x,528.,648.,25.)*window(row,491.,548.,3.);
+    float warmLight=smoothstep(-.02,.135,paint.r-paint.b);
+    return mix(paint,paint*vec3(.68,.98,1.12),railing*warmLight*.78);
+  }
+
   vec4 paint(vec2 uv){
     uv.y=uv.y*(1.+2.*overscan)-overscan;
+    float x=uv.x*imageSize.x;
+    float relative=artworkWarp.z;
+    float worldHeight=(uv.y-artworkWarp.y)*artworkWarp.w;
     uv.y+=artworkWarp.x*(1.-smoothstep(.045,.25,abs(uv.y-artworkWarp.y)));
+    if(transitionIndex==1.) uv=terraceStairs(uv,x,relative);
     vec4 color=continuedPaint(art,uv,1.,garden);
+    if(transitionIndex==2.) color.rgb=factoryApproach(color.rgb,uv,x,worldHeight);
     // The neighboring paintings use different exposure even at landmarks
     // they share. Match the common colors near each edge before the dissolve.
     float left=1.-smoothstep(paintedEdges.x,paintedEdges.x+.075,uv.x);
@@ -91,6 +152,7 @@ const transitionPaint=`
       vec3 skyGrade=color.rgb+vec3(.012,.027,.024);
       color.rgb=mix(color.rgb,mix(wallGrade,skyGrade,smoothstep(.51,.79,uv.y)),left);
       color.rgb*=mix(vec3(1.),vec3(.82,1.07,.85),right);
+      color.rgb=stationApproach(color.rgb,uv,x);
     }
     float band=smoothstep(0.,.07,uv.y)*(1.-smoothstep(.97,1.,uv.y));
     color.a*=mix(band,1.,step(.001,overscan)*(1.-smoothstep(.73,.80,uv.x)));
@@ -122,24 +184,26 @@ export async function addArtwork(scene) {
     const columns=Math.ceil((end-start)/.25);
     for(let i=0;i<=columns;i++) {
       const t=i/columns,s=start+(end-start)*t;
-      const [bottom,top,u=t,shift=0,floor=0]=column(s);
+      const [bottom,top,u=t,shift=0,floor=0,relative=0,height=1]=column(s);
       const low=worldAt(s,bottom),high=worldAt(s,top);
       vertices.push(low.x,low.y,-2,high.x,high.y,-2);
       uv.push(u,0,u,1);
-      warp.push(shift,floor,shift,floor);
+      warp.push(shift,floor,relative,height,shift,floor,relative,height);
       if(i<columns) indices.push(i*2,i*2+2,i*2+1,i*2+1,i*2+2,i*2+3);
     }
     const geometry=new THREE.BufferGeometry();
     geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
     geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
-    geometry.setAttribute('paintWarp',new THREE.Float32BufferAttribute(warp,2));
+    geometry.setAttribute('paintWarp',new THREE.Float32BufferAttribute(warp,4));
     geometry.setIndex(indices);
     const material=new THREE.ShaderMaterial({
       uniforms,
-      vertexShader:`attribute vec2 paintWarp;
-        varying vec2 artworkUV,artworkWarp;
+      vertexShader:`attribute vec4 paintWarp;
+        varying vec2 artworkUV;
+        varying vec4 artworkWarp;
         void main(){artworkUV=uv;artworkWarp=paintWarp;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader:`varying vec2 artworkUV,artworkWarp;
+      fragmentShader:`varying vec2 artworkUV;
+        varying vec4 artworkWarp;
         ${fragment}
         void main(){
           gl_FragColor=paint(artworkUV);
@@ -254,27 +318,32 @@ export async function addArtwork(scene) {
       if(road) {
         roadRow=rowAlongRoad(road,sourceX);
       } else if(index===1) {
-        // Preserve the straight, diagonal curb painted at the arch. Transfer
-        // the row height gradually before it reaches the join.
+        // Ease the two original row heights together outside the stair apron.
         roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-21,end));
       } else {
         roadRow=THREE.MathUtils.lerp(roadIn,endRow,THREE.MathUtils.smoothstep(s,end-5,end));
       }
       const artHeight=height*verticalScale;
-      const trackHeight=top(s);
+      const trackHeight=index===1
+        ? THREE.MathUtils.lerp(exitTop,entryTop,THREE.MathUtils.smoothstep(s,start,end))
+        : top(s);
       const broadT=THREE.MathUtils.smoothstep(sourceX,scenery?.at(-2)[0]??entry.x,exit.x);
       const sceneryHeight=THREE.MathUtils.lerp(exitTop,entryTop,broadT);
       const sceneryRow=scenery?rowAlongRoad(scenery,sourceX):roadRow;
       const ceiling=(scenery?sceneryHeight:trackHeight)+sceneryRow*verticalScale;
       const roadShift=(ceiling-trackHeight-roadRow*verticalScale)/artHeight;
       const safeShift=THREE.MathUtils.clamp(roadShift,-.085,.085);
-      const floor=1+(trackHeight-ceiling)/artHeight;
-      return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width,safeShift,floor];
+      const referenceHeight=index===1?entryTop:trackHeight;
+      const floor=1+(referenceHeight-ceiling)/artHeight;
+      return [ceiling-(1+overscan)*artHeight,ceiling+overscan*artHeight,sourceX/width,safeShift,floor,s-end,artHeight];
     },{
       art:{value:bridges[index]},
       overscan:{value:overscan},
       garden:{value:Number(index===4)},
       transitionIndex:{value:index},
+      imageSize:{value:new THREE.Vector2(width,height)},
+      stairOffsets:{value:new THREE.Vector3(...LEVEL3_ENTRY_STAIRS.offsets)},
+      stairRise:{value:LEVEL3_ENTRY_STAIRS.rise},
       paintedEdges:{value:new THREE.Vector2(entry.x/width,exit.x/width)},
     },transitionPaint,-2);
   }
